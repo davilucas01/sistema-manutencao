@@ -1,0 +1,186 @@
+/* ==========================================================================
+   CONFIGURAÇÕES GERAIS E RESPONSIVIDADE (KATOEN NATIE)
+   ========================================================================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    background-color: #f4f6f9;
+    color: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 15px;
+}
+
+.container {
+    width: 100%;
+    max-width: 600px;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    border-left: 8px solid #D31D1D;  /* Linha vermelha corporativa na esquerda */
+    border-right: 8px solid #D31D1D; /* Linha vermelha corporativa na direita */
+}
+
+/* ==========================================================================
+   CABEÇALHO DO FORMULÁRIO
+   ========================================================================== */
+.header {
+    background: #2d3748; /* Grafite escuro para dar contraste com a planilha */
+    color: #ffffff;
+    padding: 25px;
+    text-align: center;
+    border-bottom: 4px solid #D31D1D;
+}
+
+.header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 5px;
+}
+
+.header p {
+    font-size: 13px;
+    color: #a0aec0;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+/* ==========================================================================
+   ESTRUTURA DO FORMULÁRIO E ENTRADAS (INPUTS)
+   ========================================================================== */
+form {
+    padding: 25px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+    width: 100%;
+}
+
+label {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    color: #2d3748;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+input[type="text"],
+input[type="date"],
+select,
+textarea {
+    width: 100% !important;
+    max-width: 100%;
+    padding: 14px;
+    border: 2px solid #e2e8f0;
+    background-color: #f8fafc;
+    border-radius: 8px;
+    font-size: 16px; /* Evita que o iOS dê zoom automático ao clicar */
+    color: #1a202c;
+    transition: all 0.3s ease;
+    outline: none;
+    box-sizing: border-box;
+}
+
+input:focus, select:focus, textarea:focus {
+    border-color: #D31D1D;
+    background-color: #ffffff;
+    box-shadow: 0 0 0 3px rgba(211, 29, 29, 0.1);
+}
+
+textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+/* ==========================================================================
+   SOLUÇÃO DO DESALINHAMENTO DAS DATAS (FLEXBOX INTELIGENTE)
+   ========================================================================== */
+/* Container que envolve Data Início e Data Término */
+.datas-container, .row, .grid-datas {
+    display: flex;
+    flex-wrap: wrap; /* Faz quebrar a linha se a tela for pequena (celular) */
+    gap: 16px;       /* Distância simétrica entre os blocos */
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Garante que os grupos internos de data fiquem perfeitos */
+.input-group-data, .campo-data, .form-group-half {
+    flex: 1 1 45%;    /* Ocupa metade da tela se houver espaço (computador) */
+    min-width: 100%;  /* Força a ter largura total se o espaço apertar (celular) */
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Ajuste fino para telas um pouco maiores que celular (tablets) voltarem a ficar lado a lado */
+@media (min-width: 480px) {
+    .input-group-data, .campo-data, .form-group-half {
+        min-width: 200px; /* Permite ficar lado a lado em telas médias/grandes */
+    }
+}
+
+/* ==========================================================================
+   BOTÕES E SELEÇÃO DE ATIVIDADE
+   ========================================================================== */
+.btn-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px;
+}
+
+.btn {
+    width: 100%;
+    padding: 16px;
+    background-color: #D31D1D;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.1s ease;
+    box-shadow: 0 4px 6px rgba(211, 29, 29, 0.15);
+}
+
+.btn:hover {
+    background-color: #b31414;
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn-secondary {
+    background-color: #4a5568;
+    box-shadow: 0 4px 6px rgba(74, 85, 104, 0.15);
+}
+
+.btn-secondary:hover {
+    background-color: #2d3748;
+}
+
+/* Estilo para alertas ou mensagens de sucesso */
+.sucesso-alert {
+    background-color: #c6f6d5;
+    color: #22543d;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 600;
+    margin-bottom: 20px;
+    border: 1px solid #9ae6b4;
+}
