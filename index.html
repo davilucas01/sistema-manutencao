@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Katoen Natie - Sistemas de Manutenção</title>
-    <!-- Chart.js carregado via CDN para garantir o funcionamento online -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- html2pdf.js carregado via CDN para garantir o funcionamento online -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
         * {
@@ -414,13 +412,13 @@
             color: #b91c1c;
         }
 
-        /* Estilização dos resultados da busca de soluções */
         .resultado-solucao-item {
             background: #f8fafc;
             border: 1px solid #cbd5e1;
             border-radius: 8px;
             padding: 12px;
             margin-bottom: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         .resultado-solucao-item p {
             font-size: 13px;
@@ -509,7 +507,6 @@
                 <button class="btn-menu" onclick="mudarTela('telaProgramacao')">2. Programação Semanal</button>
                 <button class="btn-menu" onclick="mudarTela('telaOcorrencia')">3. Livro de Ocorrência</button>
                 
-                <!-- Opção 4: Solução de Problemas -->
                 <button class="btn-menu" onclick="abrirTelaSolucoes()" style="background-color: #f8fafc; border-color: #cbd5e1;">
                     4. SOLUÇÃO DE PROBLEMAS
                     <small style="font-size: 10px; opacity: 0.7; display: block; margin-top: 2px; text-transform: none; font-weight: normal;">Livro de Ocorrência</small>
@@ -547,13 +544,13 @@
             <p style="text-align: center; font-size: 11px; color: #64748b; margin-bottom: 20px;">Livro de Ocorrência</p>
             
             <div class="form-group">
-                <label>Selecione ou boxe a TAG do equipamento</label>
-                <input type="text" id="busca_tag_solucao" placeholder="Ex: MG11308" oninput="filtrarSolucoesPorTag()">
+                <label>Filtre por TAG do equipamento</label>
+                <input type="text" id="busca_tag_solucao" placeholder="Ex: MG11308 (Deixe em branco para ver todos)" oninput="filtrarSolucoesPorTag()">
             </div>
 
-            <div class="titulo-secao" style="margin-top: 20px;">Histórico de Soluções Encontradas</div>
-            <div id="containerResultadosSolucoes" style="max-height: 250px; overflow-y: auto; margin-bottom: 15px; padding-right: 5px;">
-                <p style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px;">Digite a TAG acima para buscar as soluções.</p>
+            <div class="titulo-secao" style="margin-top: 20px;">Histórico de Soluções Registradas</div>
+            <div id="containerResultadosSolucoes" style="max-height: 280px; overflow-y: auto; margin-bottom: 15px; padding-right: 5px;">
+                <p style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px;">Carregando dados da planilha...</p>
             </div>
 
             <button type="button" class="btn-voltar" onclick="mudarTela('telaMenu')">Voltar ao Menu</button>
@@ -815,8 +812,9 @@
         let dadosAtividadesLocais = { preventivas: 0, programacoes: 0, ocorrencias: 0 };
         let historicoCompletoGlobal = [];
         let todasOcorrenciasBanco = []; 
+        let temporizadorSincronizacao = null; // Sincronizador Automático em Background
 
-        // ROTA DA PLANILHA GOOGLE NA NUVEM
+        // INSIRA A SUA URL DO GOOGLE APPS SCRIPT AQUI ABAIXO
         function obterUrlServidor() {
             return `https://script.google.com/macros/s/AKfycbz_p1nN3H4m8GbyG8VbyN1PCHYf7j-o_H2Hk7iF8f4GfBsh38zD0Ff3m9uYd8wzO6Kq/exec`;
         }
@@ -844,20 +842,27 @@
                 if (resposta.ok) {
                     const dados = await resposta.json();
                     historicoCompletoGlobal = dados;
-                    todasOcorrenciasBanco = dados.filter(item => item.falha || item.solucao || item.tipoTabela === 'livro_ocorrencia');
+                    todasOcorrenciasBanco = dados.filter(item => item.tipoTabela === 'livro_ocorrencia' || item.falha || item.solucao);
+                    
+                    // Atualiza o dashboard na memória local
+                    let preventivas = 0, programacoes = 0, ocorrencias = 0;
+                    dados.forEach(item => {
+                        if (item.tipoTabela === 'preventiva') preventivas++;
+                        else if (item.tipoTabela === 'programacao_semanal') programacoes++;
+                        else if (item.tipoTabela === 'livro_ocorrencia') ocorrencias++;
+                    });
+                    dadosAtividadesLocais = { preventivas, programacoes, ocorrencias };
                 }
             } catch (e) {
-                console.warn("Sem resposta direta do Sheets. Utilizando armazenamento temporário da sessão.");
+                console.warn("Sem conexão com o Sheets para carregar histórico.");
             }
         }
 
         async function abrirTelaSolucoes() {
+            mudarTela('telaSolucaoProblemas');
             await puxarOcorrenciasIniciais(); 
             document.getElementById('busca_tag_solucao').value = "";
-            document.getElementById('containerResultadosSolucoes').innerHTML = `
-                <p style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px;">Digite a TAG acima para buscar as soluções.</p>
-            `;
-            mudarTela('telaSolucaoProblemas');
+            filtrarSolucoesPorTag(); // Mostra as soluções imediatamente na parte de baixo
         }
 
         function filtrarSolucoesPorTag() {
@@ -865,30 +870,32 @@
             const container = document.getElementById('containerResultadosSolucoes');
             container.innerHTML = "";
 
-            if (!termoBusca) {
-                container.innerHTML = `<p style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px;">Digite a TAG acima para buscar as soluções.</p>`;
-                return;
+            // Se não houver termo digitado, exibe TODAS as soluções gravadas de forma cronológica (as mais recentes primeiro)
+            let resultados = todasOcorrenciasBanco;
+            if (termoBusca) {
+                resultados = todasOcorrenciasBanco.filter(oc => {
+                    const tagLimpa = (oc.tag || "").replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                    return tagLimpa.includes(termoBusca);
+                });
             }
-
-            const resultados = todasOcorrenciasBanco.filter(oc => {
-                const tagLimpa = (oc.tag || "").replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-                return tagLimpa.includes(termoBusca);
-            });
 
             if (resultados.length === 0) {
-                container.innerHTML = `<p style="text-align: center; color: #ef4444; font-size: 13px; padding: 20px; font-weight: bold;">Nenhum histórico de falha encontrado para a TAG ${termoBusca}.</p>`;
+                container.innerHTML = `<p style="text-align: center; color: #ef4444; font-size: 13px; padding: 20px; font-weight: bold;">Nenhuma ocorrência encontrada.</p>`;
                 return;
             }
 
-            resultados.forEach(item => {
+            // Inverte para exibir os últimos registros no topo/baixo dinamicamente
+            const listaExibicao = [...resultados].reverse();
+
+            listaExibicao.forEach(item => {
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'resultado-solucao-item';
                 itemDiv.innerHTML = `
-                    <p><strong>TAG:</strong> <span style="font-family: monospace; background:#e2e8f0; padding:2px 4px; border-radius:4px;">${item.tag}</span></p>
-                    <p><strong>Falha Identificada:</strong> ${item.falha || item.componente || "Não descrita"}</p>
+                    <p><strong>TAG:</strong> <span style="font-family: monospace; background:#e2e8f0; padding:2px 4px; border-radius:4px;">${item.tag || "N/A"}</span></p>
+                    <p><strong>Falha Detectada:</strong> ${item.falha || "Não descrita"}</p>
                     <p><strong>Causa Provável:</strong> ${item.causa || "Não descrita"}</p>
-                    <p style="margin-top: 6px; border-top: 1px dashed #cbd5e1; padding-top: 6px;"><strong>Solução Aplicada:</strong> ${item.solucao || item.obs || "Não informada"}</p>
-                    <span class="badge-solucao">Resolvido por: ${item.executor || item.tecnicos || "Equipe"}</span>
+                    <p style="margin-top: 6px; border-top: 1px dashed #cbd5e1; padding-top: 6px;"><strong>Solução Aplicada:</strong> <span style="color:#b91c1c; font-weight:600;">${item.solucao || "Não informada"}</span></p>
+                    <span class="badge-solucao">Executante/Operador: ${item.executor || item.tecnicos || "Equipe"}</span>
                 `;
                 container.appendChild(itemDiv);
             });
@@ -963,7 +970,6 @@
 
                 if (usuario.cargo === 'supervisor') {
                     mudarTela('telaDashboard');
-                    carregarDadosDashboard(); 
                 } else {
                     mudarTela('telaMenu');
                 }
@@ -975,7 +981,6 @@
         function voltarDoMenu() {
             if (usuarioLogado && usuarioLogado.cargo === 'supervisor') {
                 mudarTela('telaDashboard');
-                carregarDadosDashboard(); 
             } else {
                 fazerLogout();
             }
@@ -996,9 +1001,18 @@
             } else {
                 container.classList.remove('modo-relatorio');
             }
+            
             document.querySelectorAll('.tela').forEach(tela => tela.classList.remove('ativa'));
             document.getElementById(idTela).classList.add('ativa');
             container.scrollTop = 0;
+
+            // GERENCIAMENTO DA ATUALIZAÇÃO AUTOMÁTICA EM TEMPO REAL
+            clearInterval(temporizadorSincronizacao);
+            if (idTela === 'telaDashboard') {
+                carregarDadosDashboard();
+                // Inicia o Polling automático: Baixa atualizações a cada 15 segundos sem travar a tela
+                temporizadorSincronizacao = setInterval(carregarDadosDashboard, 15000);
+            }
         }
 
         async function carregarDadosDashboard() {
@@ -1008,25 +1022,23 @@
                 if (resposta.ok) {
                     const historico = await resposta.json();
                     historicoCompletoGlobal = historico;
+                    todasOcorrenciasBanco = historico.filter(item => item.tipoTabela === 'livro_ocorrencia' || item.falha || item.solucao);
                     
-                    // Contagem real com base nos tipos de dados do Sheets
                     historico.forEach(item => {
                         const tipo = item.tipoTabela || "";
-                        if (tipo === 'preventiva') {
-                            dados.preventivas++;
-                        } else if (tipo === 'programacao_semanal') {
-                            dados.programacoes++;
-                        } else if (tipo === 'livro_ocorrencia') {
-                            dados.ocorrencias++;
-                        }
+                        if (tipo === 'preventiva') dados.preventivas++;
+                        else if (tipo === 'programacao_semanal') dados.programacoes++;
+                        else if (tipo === 'livro_ocorrencia') dados.ocorrencias++;
                     });
                     
                     dadosAtividadesLocais = { ...dados };
                 }
             } catch (erro) {
-                console.warn("Utilizando dados simulados de contingência.");
+                console.warn("Carregando cache local temporário.");
                 dados = { ...dadosAtividadesLocais };
             }
+
+            // Garante que o gráfico renderize mesmo que esteja tudo zerado no primeiro momento
             renderizarGrafico(dados);
         }
 
@@ -1064,30 +1076,6 @@
                     else if (tipo === 'livro_ocorrencia') dadosFiltrados.ocorrencias++;
                 }
             });
-
-            // Fallback inteligente de amostragem caso a filtragem local retorne zerada (contingência)
-            const totalFiltrado = dadosFiltrados.preventivas + dadosFiltrados.programacoes + dadosFiltrados.ocorrencias;
-            if (totalFiltrado === 0) {
-                if (periodo === 'hoje') {
-                    dadosFiltrados = { 
-                        preventivas: Math.min(1, dadosAtividadesLocais.preventivas), 
-                        programacoes: Math.min(1, dadosAtividadesLocais.programacoes), 
-                        ocorrencias: Math.min(1, dadosAtividadesLocais.ocorrencias) 
-                    };
-                } else if (periodo === 'semana') {
-                    dadosFiltrados = { 
-                        preventivas: Math.round(dadosAtividadesLocais.preventivas * 0.3), 
-                        programacoes: Math.round(dadosAtividadesLocais.programacoes * 0.3), 
-                        ocorrencias: Math.round(dadosAtividadesLocais.ocorrencias * 0.3) 
-                    };
-                } else if (periodo === 'mes') {
-                    dadosFiltrados = { 
-                        preventivas: Math.round(dadosAtividadesLocais.preventivas * 0.7), 
-                        programacoes: Math.round(dadosAtividadesLocais.programacoes * 0.7), 
-                        ocorrencias: Math.round(dadosAtividadesLocais.ocorrencias * 0.7) 
-                    };
-                }
-            }
 
             renderizarGrafico(dadosFiltrados);
         }
@@ -1129,38 +1117,30 @@
                     historicoCompletoGlobal = await respostaLinhas.json();
                 }
             } catch (erro) {
-                console.warn("Carregando cache em modo offline.");
+                console.warn("Modo Offline: exibindo dados da memória local.");
             }
 
             document.getElementById('relatorioDataEmissao').innerText = `Data de Emissão: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`;
             
-            // Somatória real do histórico consolidado
             let qtdPrev = 0;
             let qtdProg = 0;
             let qtdOco = 0;
 
             historicoCompletoGlobal.forEach(item => {
                 const tipo = item.tipoTabela || "";
-                if (tipo === 'preventiva') {
-                    qtdPrev++;
-                } else if (tipo === 'programacao_semanal') {
-                    qtdProg++;
-                } else if (tipo === 'livro_ocorrencia') {
-                    qtdOco++;
-                }
+                if (tipo === 'preventiva') qtdPrev++;
+                else if (tipo === 'programacao_semanal') qtdProg++;
+                else if (tipo === 'livro_ocorrencia') qtdOco++;
             });
 
-            // Atualização dinâmica dos Cards Superiores
             document.getElementById('cardPrev').innerText = qtdPrev;
             document.getElementById('cardProg').innerText = qtdProg;
             document.getElementById('cardOco').innerText = qtdOco;
 
-            // Atualização dos números da Tabela Consolidada
             document.getElementById('tabQtdPrev').innerText = qtdPrev;
             document.getElementById('tabQtdProg').innerText = qtdProg;
             document.getElementById('tabQtdOco').innerText = qtdOco;
 
-            // Cálculo dinâmico das porcentagens de eficiência com base na distribuição
             const totalAtividades = qtdPrev + qtdProg + qtdOco || 1;
             document.getElementById('tabPctPrev').innerText = `${Math.round((qtdPrev / totalAtividades) * 100)}%`;
             document.getElementById('tabPctProg').innerText = `${Math.round((qtdProg / totalAtividades) * 100)}%`;
@@ -1170,14 +1150,14 @@
             corpoTabela.innerHTML = "";
 
             if(historicoCompletoGlobal.length === 0) {
-                corpoTabela.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#64748b;">Nenhum detalhamento individual carregado. Exibindo resumo consolidado acima.</td></tr>`;
+                corpoTabela.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#64748b;">Nenhum detalhamento individual carregado.</td></tr>`;
             } else {
                 historicoCompletoGlobal.forEach(item => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td style="font-weight: 700;">${item.executor || "Não Informado"}</td>
                         <td><span style="background-color: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-weight:600; font-family: monospace;">${item.tag || "N/A"}</span></td>
-                        <td style="line-height: 1.4; color: #475569;">${item.obs || item.observacoes || item.solucao || "Sem observações registradas."}</td>
+                        <td style="line-height: 1.4; color: #475569;">${item.falha || item.obs || item.observacoes || item.solucao || "Atividade registrada com sucesso."}</td>
                     `;
                     corpoTabela.appendChild(tr);
                 });
@@ -1224,7 +1204,7 @@
                     <Row ss:Height="22">
                         <Cell ss:StyleID="Dados"><Data ss:Type="String">${item.executor || "Não Informado"}</Data></Cell>
                         <Cell ss:StyleID="Dados"><Data ss:Type="String">${item.tag || "N/A"}</Data></Cell>
-                        <Cell ss:MergeAcross="1" ss:StyleID="Dados"><Data ss:Type="String">${item.obs || item.observacoes || item.solucao || ""}</Data></Cell>
+                        <Cell ss:MergeAcross="1" ss:StyleID="Dados"><Data ss:Type="String">${item.falha || item.obs || item.observacoes || item.solucao || ""}</Data></Cell>
                     </Row>`;
                 });
             }
@@ -1302,7 +1282,7 @@
 
                 dados.executor = usuarioLogado ? usuarioLogado.nome : "Operador Comum";
 
-                // Envio POST estruturado com mode: no-cors para compatibilidade mobile total
+                // Envio POST estruturado em tempo real para a nuvem
                 await fetch(obterUrlServidor(), {
                     method: 'POST',
                     mode: 'no-cors',
@@ -1310,25 +1290,27 @@
                     body: JSON.stringify(dados)
                 });
 
-                // Atualização instantânea na memória de busca
+                // Alimenta a memória RAM local imediatamente para velocidade instantânea de consulta
+                historicoCompletoGlobal.push(dados);
                 if (dados.tipoTabela === 'livro_ocorrencia' || dados.falha || dados.solucao) {
                     todasOcorrenciasBanco.push(dados);
                 }
 
-                alert('Dados enviados com sucesso para o Google Sheets!');
+                alert('Dados gravados e enviados com sucesso para o Google Sheets!');
                 limparRascunhoForm(idForm, idBotaoLimpar);
                 
                 if (usuarioLogado && usuarioLogado.cargo === 'supervisor') {
                     mudarTela('telaDashboard');
-                    carregarDadosDashboard(); 
                 } else {
                     mudarTela('telaMenu');
                 }
             } catch (erro) {
+                // Modo de Contingência resiliente
+                historicoCompletoGlobal.push(dados);
                 if (dados.tipoTabela === 'livro_ocorrencia' || dados.falha || dados.solucao) {
                     todasOcorrenciasBanco.push(dados);
                 }
-                alert('Ocorrência registrada e disponível localmente para consulta!');
+                alert('Ocorrência salva temporariamente no aparelho!');
                 limparRascunhoForm(idForm, idBotaoLimpar);
                 mudarTela('telaMenu');
             } finally {

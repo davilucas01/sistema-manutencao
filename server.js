@@ -1,160 +1,148 @@
- const express = require('express');
-const cors = require('cors');
-const ExcelJS = require('exceljs');
-const path = require('path');
-const os = require('os');
+ // ATENÇÃO: Substitua pelo link gerado na implantação do seu Google Apps Script
+const API_URL = "https://script.google.com/macros/s/AKfycbyhUvRJy-XnNPl2Dy4aJ8BETfkOoGX24Hq--JFnaoplMOJgjBJZby1HM-dxVVb9zwgn/exec";
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+let usuarioMatricula = "";
+let chartInstance = null;
 
-// PORTA DINÂMICA: Usa a porta que a Vercel definir ou 3000 localmente
-const PORT = process.env.PORT || 3000;
+// Função chamada quando o usuário clica em "Entrar"
+function verificarAcesso() {
+    const inputMatricula = document.getElementById("input-matricula");
+    if (!inputMatricula) return;
 
-// IMPORTANTE: Ajuste do FILE_PATH para funcionar dentro da Vercel.
-// Como o arquivo .xlsx está na mesma pasta que você vai arrastar, 
-// usamos o path.join para achar o arquivo de forma segura na nuvem.
-const FILE_PATH = path.join(__dirname, 'Manutencao_Katoen_Natie.xlsx');
-
-// Rota amigável para teste rápido no navegador
-app.get('/', (req, res) => {
-    const hostname = os.hostname();
-    res.send(`
-        <div style="font-family: 'Segoe UI', sans-serif; text-align: center; margin-top: 10%; color: #333;">
-            <h1 style="color: #2b7a78;">🚀 Servidor Katoen Natie Conectado!</h1>
-            <p style="font-size: 1.2em;">A conexão com a nuvem Vercel foi realizada com sucesso.</p>
-            <div style="display: inline-block; background: #e0f2f1; padding: 15px 25px; border-radius: 8px; margin-top: 20px;">
-                <strong>Status do Servidor:</strong> <span style="color: #00796b;">Ativo & Operando na nuvem</span>
-            </div>
-        </div>
-    `);
-});
-
-// ROTA PARA SALVAR OS DADOS DOS FORMULÁRIOS
-app.post('/salvar', async (req, res) => {
-    const dados = req.body;
-    const workbook = new ExcelJS.Workbook();
-
-    try {
-        await workbook.xlsx.readFile(FILE_PATH);
-    } catch (error) {
-        console.error("Erro ao ler o arquivo no salvamento:", error);
-        return res.status(500).json({ erro: 'Arquivo Excel não encontrado ou inacessível.' });
-    }
-
-    let buscaAba = '';
-    let novosDados = [];
-
-    if (dados.tipoTabela === 'preventiva') {
-        buscaAba = 'preventiva';
-        novosDados = [
-            dados.ordem, dados.data, dados.tag, dados.executantes,
-            dados.especialidade, dados.componente, dados.status, dados.observacoes
-        ];
-    } else if (dados.tipoTabela === 'programacao_semanal') {
-        buscaAba = 'programação semanal';
-        novosDados = [
-            dados.tag, dados.ordem, dados.tarefa, dados.dataInicio,
-            dados.dataTermino, dados.status, dados.observacoes
-        ];
-    } else if (dados.tipoTabela === 'livro_ocorrencia') {
-        buscaAba = 'livro de ocorrência';
-        novosDados = [
-            dados.tag, dados.data, dados.falha, dados.causa,
-            dados.solucao, dados.tecnicos, dados.observacoes
-        ];
-    }
-
-    const worksheet = workbook.worksheets.find(ws => 
-        ws.name.toLowerCase().trim() === buscaAba
-    );
-
-    if (!worksheet) {
-        return res.status(400).json({ erro: `Aba para "${buscaAba}" não encontrada.` });
-    }
-
-    let linhaDestino = 5; 
-    while (true) {
-        const celula = worksheet.getCell(`A${linhaDestino}`);
-        if (!celula.value || celula.text.trim() === '') {
-            break;
-        }
-        linhaDestino++;
-    }
-
-    const novaLinha = worksheet.getRow(linhaDestino);
-    novaLinha.values = novosDados;
+    const mat = inputMatricula.value.trim();
+    if (!mat) return alert("Por favor, digite uma matrícula válida.");
     
-    novaLinha.eachCell((cell) => {
-        cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' }
-        };
-        cell.font = { name: 'Segoe UI', size: 11 };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    });
+    usuarioMatricula = mat;
+    document.getElementById("login-section").classList.add("hidden");
 
-    try {
-        await workbook.xlsx.writeFile(FILE_PATH);
-        console.log(`[SUCESSO] Gravado em "${worksheet.name}" -> LINHA: ${linhaDestino}`);
-        res.json({ sucesso: true });
-    } catch (error) {
-        console.error("Erro ao gravar o arquivo:", error);
-        res.status(500).json({ erro: 'Erro ao gravar arquivo no servidor local.' });
-    }
-});
-
-// ROTA DO DASHBOARD: CONTA APENAS AS LINHAS QUE TÊM TEXTO REAL ESCRITO
-app.get('/dados-dashboard', async (req, res) => {
-    try {
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.readFile(FILE_PATH);
+    // Define se é supervisor (ex: matrícula 0000 ou admin) ou operador padrão
+    if (mat === "0000" || mat.toLowerCase() === "admin") {
+        document.getElementById("supervisor-section").classList.remove("hidden");
+        inicializarDashboard();
         
-        const contarLinhasReais = (nomeAba) => {
-            const sheet = workbook.worksheets.find(ws => 
-                ws.name.toLowerCase().trim() === nomeAba.toLowerCase().trim()
-            );
-            if (!sheet) return 0;
-
-            let contagem = 0;
-            sheet.eachRow((row, rowNumber) => {
-                if (rowNumber >= 5) {
-                    const celulaIdentificadora = row.getCell(1);
-                    if (celulaIdentificadora.value && celulaIdentificadora.text.trim() !== '') {
-                        contagem++;
-                    }
-                }
-            });
-            return contagem;
-        };
-
-        const dadosDash = {
-            preventivas: contarLinhasReais('preventiva'),
-            programacoes: contarLinhasReais('programação semanal'),
-            ocorrencias: contarLinhasReais('livro de ocorrência')
-        };
-
-        res.json(dadosDash);
-    } catch (erro) {
-        console.error("Erro ao ler dados para o Dashboard:", erro);
-        res.json({ preventivas: 0, programacoes: 0, ocorrencias: 0 });
+        // RESOLVE O SEU PROBLEMA DE ATUALIZAÇÃO:
+        // Executa a função de carregar dados a cada 10 segundos automaticamente
+        setInterval(carregarDadosDashboard, 10000);
+    } else {
+        document.getElementById("operador-section").classList.remove("hidden");
     }
-});
-
-// MÉTODOS DE INICIALIZAÇÃO:
-// 1. Só escuta na porta local se NÃO estiver rodando no ambiente de produção da Vercel.
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, '0.0.0.0', () => {
-        const hostname = os.hostname();
-        console.log(`===================================================================`);
-        console.log(` 🚀 SERVIDOR KATOEN NATIE INICIADO COM SUCESSO!`);
-        console.log(` Computador Local:  http://localhost:${PORT}`);
-        console.log(` Celulares/Tablets: http://${hostname}.local:${PORT}`);
-        console.log(`===================================================================`);
-    });
 }
 
-// 2. EXPORTAÇÃO EXCLUSIVA PARA A VERCEL (Obrigatório para funcionar na Nuvem)
-module.exports = app;
+async function inicializarDashboard() {
+    await carregarDadosDashboard();
+}
+
+// Busca os dados atualizados do Google Sheets
+async function carregarDadosDashboard() {
+    try {
+        const response = await fetch(API_URL);
+        const res = await response.json();
+        
+        if (res.success) {
+            atualizarInterfaceSupervisor(res.data);
+        }
+    } catch (err) {
+        console.error("Erro ao sincronizar com o Sheets: ", err);
+    }
+}
+
+// Renderiza os dados recebidos na tela do Supervisor
+function atualizarInterfaceSupervisor(data) {
+    // 1. Atualiza os cards de contagem
+    document.getElementById("card-enviados").innerText = data.metricas.totalEnviados;
+    document.getElementById("card-pendentes").innerText = data.metricas.totalNaoEnviados;
+    document.getElementById("card-operadores").innerText = data.metricas.quantidadeOperadores;
+
+    // 2. Atualiza a lista de quem enviou
+    const listaUl = document.getElementById("lista-quem-enviou");
+    if (listaUl) {
+        listaUl.innerHTML = "";
+        if (data.quemEnviou.length === 0) {
+            listaUl.innerHTML = `<li class="py-2 text-gray-500 text-sm text-center">Nenhum envio hoje.</li>`;
+        } else {
+            data.quemEnviou.forEach(op => {
+                listaUl.innerHTML += `<li class="py-2 flex justify-between items-center text-sm">
+                    <span class="font-medium text-gray-800">${op.nome}</span>
+                    <span class="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">${op.matricula}</span>
+                </li>`;
+            });
+        }
+    }
+
+    // 3. Atualiza a tabela de Solução de Problemas dinamicamente
+    const tbody = document.getElementById("table-solucoes-body");
+    if (tbody) {
+        tbody.innerHTML = "";
+        if (data.solucaoProblemas.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum problema resolvido até o momento.</td></tr>`;
+        } else {
+            data.solucaoProblemas.forEach(sol => {
+                tbody.innerHTML += `<tr class="hover:bg-gray-50">
+                    <td class="p-3 font-semibold text-blue-900">${sol.tag}</td>
+                    <td class="p-3">${sol.falha}</td>
+                    <td class="p-3">${sol.causa}</td>
+                    <td class="p-3 text-green-700 font-medium">${sol.solucao}</td>
+                    <td class="p-3 text-gray-600">${sol.operador} (${sol.matricula})</td>
+                </tr>`;
+            });
+        }
+    }
+
+    // 4. Renderiza ou Atualiza o Gráfico do Chart.js
+    const canvasChart = document.getElementById('chartStatus');
+    if (!canvasChart) return;
+    
+    const ctx = canvasChart.getContext('2d');
+    if (chartInstance) {
+        chartInstance.data.datasets[0].data = [data.metricas.totalEnviados, data.metricas.totalNaoEnviados];
+        chartInstance.update();
+    } else {
+        chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Concluídos (OK)', 'Não Enviados / Pendentes'],
+                datasets: [{
+                    label: 'Volume de Atividades',
+                    data: [data.metricas.totalEnviados, data.metricas.totalNaoEnviados],
+                    backgroundColor: ['#22c55e', '#eab308'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+}
+
+// Envia os dados do operador para o Google Sheets (Livro de Ocorrência + Solução de Problemas)
+async function enviarOcorrencia(event) {
+    event.preventDefault();
+    
+    const payload = {
+        tipo: "ocorrencia",
+        matricula: usuarioMatricula,
+        nomeOperador: document.getElementById("op-nome").value,
+        tag: document.getElementById("op-tag").value,
+        falha: document.getElementById("op-falha").value,
+        causa: document.getElementById("op-causa").value,
+        solucao: document.getElementById("op-solucao").value
+    };
+
+    try {
+        await fetch(API_URL, {
+            method: "POST",
+            mode: "no-cors", // Evita problemas de CORS no envio para o Google Apps Script
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        
+        alert("Dados gravados com sucesso no Livro de Ocorrência e Solução de Problemas!");
+        document.getElementById("form-ocorrencia").reset();
+    } catch (err) {
+        alert("Erro ao enviar dados para a nuvem.");
+        console.error(err);
+    }
+}
