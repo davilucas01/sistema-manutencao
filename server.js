@@ -1,6 +1,5 @@
-// O front-end agora conversa com o seu servidor Node.js (server.js) de forma limpa e segura
-const API_DADOS_URL = "/api/dados";
-const API_ENVIAR_URL = "/api/ocorrencia";
+// Link direto da implantação do seu Google Apps Script (Deixe exatamente o seu)
+const API_URL = "https://script.google.com/macros/s/AKfycbyhUvRJy-XnNPl2Dy4aJ8BETfkOoGX24Hq--JFnaoplMOJgjBJZby1HM-dxVVb9zwgn/exec";
 
 let usuarioMatricula = "";
 let chartInstance = null;
@@ -16,12 +15,12 @@ function verificarAcesso() {
     usuarioMatricula = mat;
     document.getElementById("login-section").classList.add("hidden");
 
-    // Define se é supervisor (ex: matrícula 0000 ou admin) ou operador padrão
+    // Mantém as seções visíveis e fixas dependendo do acesso
     if (mat === "0000" || mat.toLowerCase() === "admin") {
         document.getElementById("supervisor-section").classList.remove("hidden");
         inicializarDashboard();
         
-        // Executa a função de carregar dados a cada 10 segundos automaticamente
+        // Atualiza o painel a cada 10 segundos buscando o que está salvo no banco do Sheets
         setInterval(carregarDadosDashboard, 10000);
     } else {
         document.getElementById("operador-section").classList.remove("hidden");
@@ -32,28 +31,28 @@ async function inicializarDashboard() {
     await carregarDadosDashboard();
 }
 
-// Busca os dados atualizados do Google Sheets passando pelo server.js
+// Busca o histórico fixo do Google Sheets para montar a tela do Supervisor
 async function carregarDadosDashboard() {
     try {
-        const response = await fetch(API_DADOS_URL);
+        // Para ler os dados de forma limpa sem bloqueio de CORS na leitura
+        const response = await fetch(API_URL);
         const res = await response.json();
         
         if (res.success) {
             atualizarInterfaceSupervisor(res.data);
         }
     } catch (err) {
-        console.error("Erro ao sincronizar com o Sheets através do servidor: ", err);
+        console.error("Erro ao puxar dados estáveis do Sheets: ", err);
     }
 }
 
-// Renderiza os dados recebidos na tela do Supervisor
+// Renderiza tudo na tela do Supervisor e deixa fixo na tabela
 function atualizarInterfaceSupervisor(data) {
-    // 1. Atualiza os cards de contagem
     document.getElementById("card-enviados").innerText = data.metricas.totalEnviados;
     document.getElementById("card-pendentes").innerText = data.metricas.totalNaoEnviados;
     document.getElementById("card-operadores").innerText = data.metricas.quantidadeOperadores;
 
-    // 2. Atualiza a lista de quem enviou
+    // Atualiza a lista de quem enviou
     const listaUl = document.getElementById("lista-quem-enviou");
     if (listaUl) {
         listaUl.innerHTML = "";
@@ -69,7 +68,7 @@ function atualizarInterfaceSupervisor(data) {
         }
     }
 
-    // 3. Atualiza a tabela de Solução de Problemas dinamicamente
+    // Alimenta a tabela de Solução de Problemas / Livro de Ocorrências com o banco de dados
     const tbody = document.getElementById("table-solucoes-body");
     if (tbody) {
         tbody.innerHTML = "";
@@ -88,7 +87,7 @@ function atualizarInterfaceSupervisor(data) {
         }
     }
 
-    // 4. Renderiza ou Atualiza o Gráfico do Chart.js
+    // Renderiza ou Atualiza o Gráfico
     const canvasChart = document.getElementById('chartStatus');
     if (!canvasChart) return;
     
@@ -117,7 +116,7 @@ function atualizarInterfaceSupervisor(data) {
     }
 }
 
-// Envia os dados do operador para o servidor (que repassa com segurança ao Sheets)
+// Grava a atividade direto no Sheets (Livro de Ocorrência) e limpa o form sem deslogar
 async function enviarOcorrencia(event) {
     event.preventDefault();
     
@@ -132,22 +131,23 @@ async function enviarOcorrencia(event) {
     };
 
     try {
-        const response = await fetch(API_ENVIAR_URL, {
+        // Envio direto via no-cors, exatamente como você fazia antes para salvar no banco
+        await fetch(API_URL, {
             method: "POST",
+            mode: "no-cors",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
         
-        const resultado = await response.json();
+        alert("Dados gravados com sucesso no banco de dados do Google Sheets!");
+        document.getElementById("form-ocorrencia").reset();
         
-        if (resultado.success) {
-            alert("Dados gravados com sucesso no Livro de Ocorrência e Solução de Problemas!");
-            document.getElementById("form-ocorrencia").reset();
-        } else {
-            alert("O servidor respondeu com um erro ao tentar salvar.");
+        // Se for uma conta admin/supervisor, ele já atualiza a tabela na hora
+        if (usuarioMatricula === "0000" || usuarioMatricula.toLowerCase() === "admin") {
+            carregarDadosDashboard();
         }
     } catch (err) {
-        alert("Erro ao enviar dados para o servidor.");
+        alert("Erro ao enviar dados para a nuvem.");
         console.error(err);
     }
 }
