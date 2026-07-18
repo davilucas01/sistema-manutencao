@@ -1,152 +1,238 @@
-// Link direto da implantação do seu Google Apps Script atualizado
-const API_URL = "https://script.google.com/macros/s/AKfycbyxnZn0iUjs1j7ppPvCn6V7EHsQC5O3lKzhT3WUucx9bhAdBX_xFEfaupvAr4bPXrYH-A/exec";
+// =================================================================
+// 1. CONFIGURAÇÃO DA URL (INSIRA SEU LINK DO APPS SCRIPT AQUI)
+// =================================================================
+function obterUrlServidor() {
+    // Substitua o texto abaixo pela URL gerada ao "Implantar" no Google Sheets (/exec)
+    return "https://script.google.com/macros/s/AKfycbycXja40BJejgG5k6iuxVgwv4i0vbc7_IFdB4SXitq-QzwUWDog567_ZZI98ZTWJk58cA/exec";
+}
 
-let usuarioMatricula = "";
-let chartInstance = null;
+// Variável global para gerenciar o gráfico (Evita erro de Canvas em uso)
+window.meuGrafico = null;
+// Variável global para armazenar o cache de dados vindos do Sheets
+window.dadosTratadosDashboard = [];
+// Armazena o ID do intervalo de atualização para poder limpá-lo
+let temporizadorSincronizacao = null;
 
-// Função chamada quando o usuário clica em "Entrar"
-function verificarAcesso() {
-    const inputMatricula = document.getElementById("input-matricula");
-    if (!inputMatricula) return;
-
-    const mat = inputMatricula.value.trim();
-    if (!mat) return alert("Por favor, digite uma matrícula válida.");
+// =================================================================
+// 2. CONTROLE DE TELAS E FLUXO DO DASHBOARD
+// =================================================================
+function mudarTela(idTela) {
+    // Remove a classe ativa de todas as telas para ocultá-las
+    document.querySelectorAll('.tela').forEach(tela => tela.classList.remove('ativa'));
     
-    usuarioMatricula = mat;
-    document.getElementById("login-section").classList.add("hidden");
+    // Ativa a tela que o usuário clicou
+    const telaAlvo = document.getElementById(idTela);
+    if (telaAlvo) telaAlvo.classList.add('ativa');
 
-    // Mantém as seções visíveis e fixas dependendo do acesso
-    if (mat === "0000" || mat.toLowerCase() === "admin") {
-        document.getElementById("supervisor-section").classList.remove("hidden");
-        inicializarDashboard();
+    // Se entrou na tela do Dashboard/Supervisor, liga a atualização em tempo real
+    if (idTela === 'telaDashboard') {
+        carregarDadosDashboard(); // Roda imediatamente
         
-        // Atualiza o painel a cada 10 segundos buscando o que está salvo no banco do Sheets
-        setInterval(carregarDadosDashboard, 10000);
-    } else {
-        document.getElementById("operador-section").classList.remove("hidden");
-    }
-}
-
-async function inicializarDashboard() {
-    await carregarDadosDashboard();
-}
-
-// Busca o histórico fixo do Google Sheets para montar a tela do Supervisor
-async function carregarDadosDashboard() {
-    try {
-        // Para ler os dados de forma limpa sem bloqueio de CORS na leitura
-        const response = await fetch(API_URL);
-        const res = await response.json();
+        // Evita criar múltiplos loops duplicados se clicar no botão várias vezes
+        if (temporizadorSincronizacao) clearInterval(temporizadorSincronizacao);
         
-        if (res.success) {
-            atualizarInterfaceSupervisor(res.data);
+        // Configura o loop para atualizar a cada 15 segundos em background
+        temporizadorSincronizacao = setInterval(carregarDadosDashboard, 15000);
+    } else {
+        // Se saiu do Dashboard, desliga o temporizador para economizar memória e internet
+        if (temporizadorSincronizacao) {
+            clearInterval(temporizadorSincronizacao);
+            temporizadorSincronizacao = null;
         }
-    } catch (err) {
-        console.error("Erro ao puxar dados estáveis do Sheets: ", err);
     }
 }
 
-// Renderiza tudo na tela do Supervisor e deixa fixo na tabela
-function atualizarInterfaceSupervisor(data) {
-    document.getElementById("card-enviados").innerText = data.metricas.totalEnviados;
-    document.getElementById("card-pendentes").innerText = data.metricas.totalNaoEnviados;
-    document.getElementById("card-operadores").innerText = data.metricas.quantidadeOperadores;
+// Busca os dados consolidados do servidor (Google Sheets)
+function carregarDadosDashboard() {
+    const url = obterUrlServidor();
+    if (!url || url.includes("SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI")) return;
 
-    // Atualiza a lista de quem enviou
-    const listaUl = document.getElementById("lista-quem-enviou");
-    if (listaUl) {
-        listaUl.innerHTML = "";
-        if (data.quemEnviou.length === 0) {
-            listaUl.innerHTML = `<li class="py-2 text-gray-500 text-sm text-center">Nenhum envio hoje.</li>`;
-        } else {
-            data.quemEnviou.forEach(op => {
-                listaUl.innerHTML += `<li class="py-2 flex justify-between items-center text-sm">
-                    <span class="font-medium text-gray-800">${op.nome}</span>
-                    <span class="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">${op.matricula}</span>
-                </li>`;
-            });
-        }
-    }
-
-    // Alimenta a tabela de Solução de Problemas / Livro de Ocorrências com o banco de dados
-    const tbody = document.getElementById("table-solucoes-body");
-    if (tbody) {
-        tbody.innerHTML = "";
-        if (data.solucaoProblemas.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum problema resolvido até o momento.</td></tr>`;
-        } else {
-            data.solucaoProblemas.forEach(sol => {
-                tbody.innerHTML += `<tr class="hover:bg-gray-50">
-                    <td class="p-3 font-semibold text-blue-900">${sol.tag}</td>
-                    <td class="p-3">${sol.falha}</td>
-                    <td class="p-3">${sol.causa}</td>
-                    <td class="p-3 text-green-700 font-medium">${sol.solucao}</td>
-                    <td class="p-3 text-gray-600">${sol.operador} (${sol.matricula})</td>
-                </tr>`;
-            });
-        }
-    }
-
-    // Renderiza ou Atualiza o Gráfico
-    const canvasChart = document.getElementById('chartStatus');
-    if (!canvasChart) return;
-    
-    const ctx = canvasChart.getContext('2d');
-    if (chartInstance) {
-        chartInstance.data.datasets[0].data = [data.metricas.totalEnviados, data.metricas.totalNaoEnviados];
-        chartInstance.update();
-    } else {
-        chartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: ['Concluídos (OK)', 'Não Enviados / Pendentes'],
-                datasets: [{
-                    label: 'Volume de Atividades',
-                    data: [data.metricas.totalEnviados, data.metricas.totalNaoEnviados],
-                    backgroundColor: ['#22c55e', '#eab308'],
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { y: { beginAtZero: true } }
+    fetch(url)
+    .then(res => res.json())
+    .then(dados => {
+        if (Array.isArray(dados)) {
+            window.dadosTratadosDashboard = dados; // Atualiza o cache global
+            atualizarGrafico(dados);               // Atualiza o gráfico na tela
+            
+            // Se o supervisor já estiver com uma TAG digitada na busca, atualiza a tabela na hora
+            const tagBusca = document.getElementById("inputBuscaTag")?.value;
+            if (tagBusca) {
+                buscarSolucoesPorTag(tagBusca);
             }
-        });
-    }
+        }
+    })
+    .catch(err => console.error("Erro ao puxar atualizações do Sheets:", err));
 }
 
-// Grava a atividade direto no Sheets (Livro de Ocorrência) e limpa o form sem deslogar
-async function enviarOcorrencia(event) {
-    event.preventDefault();
-    
-    const payload = {
-        tipo: "ocorrencia",
-        matricula: usuarioMatricula,
-        nomeOperador: document.getElementById("op-nome").value,
-        tag: document.getElementById("op-tag").value,
-        falha: document.getElementById("op-falha").value,
-        causa: document.getElementById("op-causa").value,
-        solucao: document.getElementById("op-solucao").value
-    };
+// =================================================================
+// 3. RENDERIZAÇÃO DO GRÁFICO (CHART.JS)
+// =================================================================
+function atualizarGrafico(dados) {
+    const ctx = document.getElementById("canvasGrafico")?.getContext("2d");
+    if (!ctx) return;
 
-    try {
-        // Envio direto via no-cors. Removemos os headers de Content-Type para evitar bloqueios do navegador.
-        await fetch(API_URL, {
-            method: "POST",
-            mode: "no-cors",
-            body: JSON.stringify(payload)
-        });
-        
-        alert("Dados gravados com sucesso no banco de dados do Google Sheets!");
-        document.getElementById("form-ocorrencia").reset();
-        
-        // Se for uma conta admin/supervisor, atualiza a tabela local imediatamente
-        if (usuarioMatricula === "0000" || usuarioMatricula.toLowerCase() === "admin") {
-            carregarDadosDashboard();
+    // CORREÇÃO CRÍTICA: Se o gráfico já existir, destrói a instância antiga para não travar o canvas
+    if (window.meuGrafico instanceof Chart) {
+        window.meuGrafico.destroy();
+    }
+
+    // Consolida e conta quantos registros existem de cada tabela
+    const contagem = { preventiva: 0, programacao_semanal: 0, livro_ocorrencia: 0 };
+    dados.forEach(item => {
+        if (contagem[item.tipoTabela] !== undefined) {
+            contagem[item.tipoTabela]++;
         }
-    } catch (err) {
-        alert("Erro ao enviar dados para a nuvem.");
-        console.error(err);
+    });
+
+    // Gera o novo gráfico atualizado
+    window.meuGrafico = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Preventiva', 'Prog. Semanal', 'Livro de Ocorrência'],
+            datasets: [{
+                label: 'Registros Executados',
+                data: [contagem.preventiva, contagem.programacao_semanal, contagem.livro_ocorrencia],
+                backgroundColor: ['#2563eb', '#16a34a', '#dc2626']
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true }
+            }
+        }
+    });
+}
+
+// =================================================================
+// 4. CONSULTA DE SOLUÇÃO DE PROBLEMAS (HISTÓRICO POR TAG)
+// =================================================================
+function buscarSolucoesPorTag(tagBusca) {
+    const corpoTabela = document.getElementById("corpoTabelaSolucoes");
+    if (!corpoTabela) return;
+
+    // CORREÇÃO CRÍTICA: Limpa as linhas antigas antes de renderizar para não acumular/duplicar dados
+    corpoTabela.innerHTML = "";
+
+    const dados = window.dadosTratadosDashboard || [];
+    const tagTratada = tagBusca.trim().toUpperCase();
+
+    if (!tagTratada) return;
+
+    // Filtra no banco apenas o que for 'livro_ocorrencia' e bater com a TAG pesquisada
+    const resultados = dados.filter(item => 
+        item.tipoTabela === 'livro_ocorrencia' && 
+        item.tag && 
+        item.tag.trim().toUpperCase() === tagTratada
+    );
+
+    // Se não achar nada, avisa o usuário de forma limpa na tabela
+    if (resultados.length === 0) {
+        corpoTabela.innerHTML = `<tr><td colspan="4" style="text-align:center; color: #6b7280;">Nenhuma ocorrência registrada para esta TAG.</td></tr>`;
+        return;
+    }
+
+    // Injeta as linhas tratadas contra valores nulos/vazios
+    resultados.forEach(item => {
+        const linhaHTML = `
+            <tr>
+                <td>${item.data ? formatarData(item.data) : '-'}</td>
+                <td style="font-weight: 600; color: #dc2626;">${item.falha || 'Não informada'}</td>
+                <td>${item.causa || 'Não informada'}</td>
+                <td style="font-weight: 600; color: #16a34a;">${item.solucao || 'Em andamento'}</td>
+            </tr>
+        `;
+        corpoTabela.insertAdjacentHTML('beforeend', linhaHTML);
+    });
+}
+
+// =================================================================
+// 5. ENVIO DE FORMULÁRIOS & FILA OFFLINE (LOCALSTORAGE)
+// =================================================================
+function enviarAoServidor(dados, tipoTabela) {
+    const url = obterUrlServidor();
+    
+    // Se não houver URL configurada, armazena direto no LocalStorage para não perder a informação
+    if (!url || url.includes("SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI")) {
+        console.warn("URL do servidor não configurada. Salvando localmente.");
+        salvarDadosLocais(dados, tipoTabela);
+        return;
+    }
+
+    // Adiciona o tipo da tabela junto aos dados enviados
+    const payload = { ...dados, tipoTabela: tipoTabela };
+
+    fetch(url, {
+        method: "POST",
+        mode: "no-cors", // Evita problemas de CORS diretamente com o Google API
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(() => {
+        console.log(`Dados enviados com sucesso: ${tipoTabela}`);
+        limparFormularioAtual(tipoTabela);
+    })
+    .catch(erro => {
+        console.error("Erro na rede. Armazenando dados no LocalStorage:", erro);
+        salvarDadosLocais(dados, tipoTabela);
+    });
+}
+
+function salvarDadosLocais(dados, tipoTabela) {
+    let fila = JSON.parse(localStorage.getItem("fila_sincronizacao")) || [];
+    fila.push({ dados: dados, tipoTabela: tipoTabela, timestamp: new Date().getTime() });
+    localStorage.setItem("fila_sincronizacao", JSON.stringify(fila));
+}
+
+// Sincroniza o que ficou preso no LocalStorage quando a internet voltar
+function sincronizarDadosPendentes() {
+    let fila = JSON.parse(localStorage.getItem("fila_sincronizacao")) || [];
+    if (fila.length === 0) return;
+
+    const url = obterUrlServidor();
+    if (!url || url.includes("SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI")) return;
+
+    console.log(`Sincronizando backlog offline (${fila.length} pendentes)...`);
+    
+    const item = fila[0];
+    const payload = { ...item.dados, tipoTabela: item.tipoTabela };
+
+    fetch(url, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    })
+    .then(() => {
+        // CORREÇÃO: Remove o item com sucesso apenas APÓS a confirmação do envio para não duplicar
+        fila.shift();
+        localStorage.setItem("fila_sincronizacao", JSON.stringify(fila));
+        console.log("Item sincronizado e removido da fila.");
+    })
+    .catch(err => console.error("Servidor ainda offline. Mantendo na fila.", err));
+}
+
+// Verifica e limpa o banco local offline a cada 30 segundos de forma silenciosa
+setInterval(sincronizarDadosPendentes, 30000);
+
+// =================================================================
+// 6. FUNÇÕES AUXILIARES / INTERFACE
+// =================================================================
+function limparFormularioAtual(tipoTabela) {
+    if (tipoTabela === 'preventiva') document.getElementById("formPreventiva")?.reset();
+    if (tipoTabela === 'programacao_semanal') document.getElementById("formProgramacao")?.reset();
+    if (tipoTabela === 'livro_ocorrencia') document.getElementById("formOcorrencia")?.reset();
+}
+
+function formatarData(stringData) {
+    try {
+        const d = new Date(stringData);
+        if (isNaN(d.getTime())) return stringData;
+        return d.toLocaleDateString('pt-BR');
+    } catch {
+        return stringData;
     }
 }
