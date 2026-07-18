@@ -1,14 +1,14 @@
 // =================================================================
-// 1. CONFIGURAÇÃO DA URL (INSIRA SEU LINK DO APPS SCRIPT AQUI)
+// 1. CONFIGURAÇÃO DA URL (INSIRA SEU LINK DO PIPEDREAM AQUI)
 // =================================================================
 function obterUrlServidor() {
-    // Substitua o texto abaixo pela URL gerada ao "Implantar" no Google Sheets (/exec)
-    return "https://script.google.com/macros/s/AKfycbycXja40BJejgG5k6iuxVgwv4i0vbc7_IFdB4SXitq-QzwUWDog567_ZZI98ZTWJk58cA/exec";
+    // Substitua o texto abaixo pela URL (Endpoint) gerada na sua conta do Pipedream
+    return "https://eopthfj60z574hn.m.pipedream.net";
 }
 
 // Variável global para gerenciar o gráfico (Evita erro de Canvas em uso)
 window.meuGrafico = null;
-// Variável global para armazenar o cache de dados vindos do Sheets
+// Variável global para armazenar o cache de dados vindos do Excel (via Pipedream/Power Query)
 window.dadosTratadosDashboard = [];
 // Armazena o ID do intervalo de atualização para poder limpá-lo
 let temporizadorSincronizacao = null;
@@ -42,17 +42,21 @@ function mudarTela(idTela) {
     }
 }
 
-// Busca os dados consolidados do servidor (Google Sheets)
+// Busca os dados consolidados do servidor (Pipedream/Excel)
 function carregarDadosDashboard() {
     const url = obterUrlServidor();
-    if (!url || url.includes("SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI")) return;
+    if (!url || url.includes("SUA_URL_DO_PIPEDREAM_AQUI")) return;
 
     fetch(url)
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) throw new Error('Falha na resposta do servidor');
+        return res.json();
+    })
     .then(dados => {
         if (Array.isArray(dados)) {
-            window.dadosTratadosDashboard = dados; // Atualiza o cache global
-            atualizarGrafico(dados);               // Atualiza o gráfico na tela
+            // CORRIGIDO: Forçando a escrita exata da variável global
+            window.dadosTratadosDashboard = dados; 
+            atualizarGrafico(dados);               // Updates chart on screen
             
             // Se o supervisor já estiver com uma TAG digitada na busca, atualiza a tabela na hora
             const tagBusca = document.getElementById("inputBuscaTag")?.value;
@@ -61,7 +65,7 @@ function carregarDadosDashboard() {
             }
         }
     })
-    .catch(err => console.error("Erro ao puxar atualizações do Sheets:", err));
+    .catch(err => console.error("Erro ao puxar atualizações do Excel via Pipedream:", err));
 }
 
 // =================================================================
@@ -154,8 +158,8 @@ function enviarAoServidor(dados, tipoTabela) {
     const url = obterUrlServidor();
     
     // Se não houver URL configurada, armazena direto no LocalStorage para não perder a informação
-    if (!url || url.includes("SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI")) {
-        console.warn("URL do servidor não configurada. Salvando localmente.");
+    if (!url || url.includes("SUA_URL_DO_PIPEDREAM_AQUI")) {
+        console.warn("URL do Pipedream não configurada. Salvando localmente.");
         salvarDadosLocais(dados, tipoTabela);
         return;
     }
@@ -163,16 +167,17 @@ function enviarAoServidor(dados, tipoTabela) {
     // Adiciona o tipo da tabela junto aos dados enviados
     const payload = { ...dados, tipoTabela: tipoTabela };
 
+    // Correção de envio: Remoção do 'no-cors' para permitir validação real de recebimento pelo Pipedream
     fetch(url, {
         method: "POST",
-        mode: "no-cors", // Evita problemas de CORS diretamente com o Google API
         headers: {
             "Content-Type": "application/json"
         },
         body: JSON.stringify(payload)
     })
-    .then(() => {
-        console.log(`Dados enviados com sucesso: ${tipoTabela}`);
+    .then(res => {
+        if (!res.ok) throw new Error("Erro na gravação do servidor.");
+        console.log(`Dados enviados com sucesso para o Pipedream: ${tipoTabela}`);
         limparFormularioAtual(tipoTabela);
     })
     .catch(erro => {
@@ -193,7 +198,7 @@ function sincronizarDadosPendentes() {
     if (fila.length === 0) return;
 
     const url = obterUrlServidor();
-    if (!url || url.includes("SUA_URL_DO_GOOGLE_APPS_SCRIPT_AQUI")) return;
+    if (!url || url.includes("SUA_URL_DO_PIPEDREAM_AQUI")) return;
 
     console.log(`Sincronizando backlog offline (${fila.length} pendentes)...`);
     
@@ -202,17 +207,17 @@ function sincronizarDadosPendentes() {
 
     fetch(url, {
         method: "POST",
-        mode: "no-cors",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
     })
-    .then(() => {
-        // CORREÇÃO: Remove o item com sucesso apenas APÓS a confirmação do envio para não duplicar
+    .then(res => {
+        if (!res.ok) throw new Error("Ainda indisponível.");
+        // Remove o item com sucesso apenas APÓS a confirmação do envio para não duplicar
         fila.shift();
         localStorage.setItem("fila_sincronizacao", JSON.stringify(fila));
         console.log("Item sincronizado e removido da fila.");
     })
-    .catch(err => console.error("Servidor ainda offline. Mantendo na fila.", err));
+    .catch(err => console.error("Servidor ainda offline ou erro no envio. Mantendo na fila.", err));
 }
 
 // Verifica e limpa o banco local offline a cada 30 segundos de forma silenciosa
