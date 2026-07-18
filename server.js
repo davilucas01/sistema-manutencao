@@ -1,5 +1,5 @@
-// Link direto da implantação do seu Google Apps Script (Deixe exatamente o seu)
-const API_URL = "https://script.google.com/macros/s/AKfycbyhUvRJy-XnNPl2Dy4aJ8BETfkOoGX24Hq--JFnaoplMOJgjBJZby1HM-dxVVb9zwgn/exec";
+// Link direto da implantação do seu Google Apps Script atualizado
+const API_URL = "https://script.google.com/macros/s/AKfycbxSCsmbkUNfqGiAOW4kGVSXVl4OqP4YsnP9U6Qw7QZcJxM5UDCRv29fkicIP5In5aEp/exec";
 
 let usuarioMatricula = "";
 let chartInstance = null;
@@ -131,18 +131,17 @@ async function enviarOcorrencia(event) {
     };
 
     try {
-        // Envio direto via no-cors, exatamente como você fazia antes para salvar no banco
+        // Envio direto via no-cors. Removemos os headers de Content-Type para evitar bloqueios do navegador.
         await fetch(API_URL, {
             method: "POST",
             mode: "no-cors",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
         
         alert("Dados gravados com sucesso no banco de dados do Google Sheets!");
         document.getElementById("form-ocorrencia").reset();
         
-        // Se for uma conta admin/supervisor, ele já atualiza a tabela na hora
+        // Se for uma conta admin/supervisor, atualiza a tabela local imediatamente
         if (usuarioMatricula === "0000" || usuarioMatricula.toLowerCase() === "admin") {
             carregarDadosDashboard();
         }
