@@ -790,6 +790,9 @@
     </div>
 
     <script>
+        // URL DO PIPEDREAM ATUALIZADA
+        const URL_PIPEDREAM = "https://eopthfj60z574hn.m.pipedream.net";
+
         const usuariosPermitidos = {
             "10110021": { senha: "10110021", nome: "David Lucas", cargo: "operador" },
             "10110022": { senha: "10110022", nome: "Eric Demendi", cargo: "supervisor" },
@@ -816,17 +819,12 @@
         let historicoCompletoGlobal = [];
         let todasOcorrenciasBanco = []; 
 
-        // ROTA DA PLANILHA GOOGLE NA NUVEM
-        function obterUrlServidor() {
-            return `https://script.google.com/macros/s/AKfycbz_p1nN3H4m8GbyG8VbyN1PCHYf7j-o_H2Hk7iF8f4GfBsh38zD0Ff3m9uYd8wzO6Kq/exec`;
-        }
-
         window.addEventListener('DOMContentLoaded', () => {
             configurarRascunhos('formPreventiva', 'btn_limpar_prev');
             configurarRascunhos('formProgramacao', 'btn_limpar_prog');
             configurarRascunhos('formOcorrencia', 'btn_limpar_oc');
             aplicarPadronizacaoTags();
-            puxarOcorrenciasIniciais();
+            puxarDadosIniciais();
         });
 
         function aplicarPadronizacaoTags() {
@@ -838,21 +836,22 @@
             });
         }
 
-        async function puxarOcorrenciasIniciais() {
+        async function puxarDadosIniciais() {
+            if (!URL_PIPEDREAM) return;
             try {
-                const resposta = await fetch(obterUrlServidor());
+                const resposta = await fetch(URL_PIPEDREAM);
                 if (resposta.ok) {
                     const dados = await resposta.json();
-                    historicoCompletoGlobal = dados;
-                    todasOcorrenciasBanco = dados.filter(item => item.falha || item.solucao || item.tipoTabela === 'livro_ocorrencia');
+                    historicoCompletoGlobal = Array.isArray(dados) ? dados : [];
+                    todasOcorrenciasBanco = historicoCompletoGlobal.filter(item => item.falha || item.solucao || item.tipoTabela === 'livro_ocorrencia');
                 }
             } catch (e) {
-                console.warn("Sem resposta direta do Sheets. Utilizando armazenamento temporário da sessão.");
+                console.warn("Aguardando configuração de endpoint ativo no Pipedream.");
             }
         }
 
         async function abrirTelaSolucoes() {
-            await puxarOcorrenciasIniciais(); 
+            await puxarDadosIniciais(); 
             document.getElementById('busca_tag_solucao').value = "";
             document.getElementById('containerResultadosSolucoes').innerHTML = `
                 <p style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px;">Digite a TAG acima para buscar as soluções.</p>
@@ -1003,28 +1002,16 @@
 
         async function carregarDadosDashboard() {
             let dados = { preventivas: 0, programacoes: 0, ocorrencias: 0 };
-            try {
-                const resposta = await fetch(obterUrlServidor());
-                if (resposta.ok) {
-                    const historico = await resposta.json();
-                    historicoCompletoGlobal = historico;
-                    
-                    // Contagem real com base nos tipos de dados do Sheets
-                    historico.forEach(item => {
-                        const tipo = item.tipoTabela || "";
-                        if (tipo === 'preventiva') {
-                            dados.preventivas++;
-                        } else if (tipo === 'programacao_semanal') {
-                            dados.programacoes++;
-                        } else if (tipo === 'livro_ocorrencia') {
-                            dados.ocorrencias++;
-                        }
-                    });
-                    
-                    dadosAtividadesLocais = { ...dados };
-                }
-            } catch (erro) {
-                console.warn("Utilizando dados simulados de contingência.");
+            
+            if (historicoCompletoGlobal.length > 0) {
+                historicoCompletoGlobal.forEach(item => {
+                    const tipo = item.tipoTabela || "";
+                    if (tipo === 'preventiva') dados.preventivas++;
+                    else if (tipo === 'programacao_semanal') dados.programacoes++;
+                    else if (tipo === 'livro_ocorrencia') dados.ocorrencias++;
+                });
+                dadosAtividadesLocais = { ...dados };
+            } else {
                 dados = { ...dadosAtividadesLocais };
             }
             renderizarGrafico(dados);
@@ -1065,7 +1052,6 @@
                 }
             });
 
-            // Fallback inteligente de amostragem caso a filtragem local retorne zerada (contingência)
             const totalFiltrado = dadosFiltrados.preventivas + dadosFiltrados.programacoes + dadosFiltrados.ocorrencias;
             if (totalFiltrado === 0) {
                 if (periodo === 'hoje') {
@@ -1123,44 +1109,27 @@
             botao.disabled = true;
             botao.innerText = "Processando...";
 
-            try {
-                const respostaLinhas = await fetch(obterUrlServidor());
-                if (respostaLinhas.ok) {
-                    historicoCompletoGlobal = await respostaLinhas.json();
-                }
-            } catch (erro) {
-                console.warn("Carregando cache em modo offline.");
-            }
-
             document.getElementById('relatorioDataEmissao').innerText = `Data de Emissão: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`;
             
-            // Somatória real do histórico consolidado
             let qtdPrev = 0;
             let qtdProg = 0;
             let qtdOco = 0;
 
             historicoCompletoGlobal.forEach(item => {
                 const tipo = item.tipoTabela || "";
-                if (tipo === 'preventiva') {
-                    qtdPrev++;
-                } else if (tipo === 'programacao_semanal') {
-                    qtdProg++;
-                } else if (tipo === 'livro_ocorrencia') {
-                    qtdOco++;
-                }
+                if (tipo === 'preventiva') qtdPrev++;
+                else if (tipo === 'programacao_semanal') qtdProg++;
+                else if (tipo === 'livro_ocorrencia') qtdOco++;
             });
 
-            // Atualização dinâmica dos Cards Superiores
             document.getElementById('cardPrev').innerText = qtdPrev;
             document.getElementById('cardProg').innerText = qtdProg;
             document.getElementById('cardOco').innerText = qtdOco;
 
-            // Atualização dos números da Tabela Consolidada
             document.getElementById('tabQtdPrev').innerText = qtdPrev;
             document.getElementById('tabQtdProg').innerText = qtdProg;
             document.getElementById('tabQtdOco').innerText = qtdOco;
 
-            // Cálculo dinâmico das porcentagens de eficiência com base na distribuição
             const totalAtividades = qtdPrev + qtdProg + qtdOco || 1;
             document.getElementById('tabPctPrev').innerText = `${Math.round((qtdPrev / totalAtividades) * 100)}%`;
             document.getElementById('tabPctProg').innerText = `${Math.round((qtdProg / totalAtividades) * 100)}%`;
@@ -1243,7 +1212,7 @@
             URL.revokeObjectURL(url);
         }
 
-        // ENVIOS DOS FORMULÁRIOS
+        // ENVIO DOS FORMULÁRIOS ADAPTADOS PARA PIPEDREAM
         document.getElementById('formPreventiva').addEventListener('submit', async (e) => {
             e.preventDefault();
             if (!validarFormulario('formPreventiva')) return alert('Preencha os campos obrigatórios!');
@@ -1293,29 +1262,41 @@
         async function enviarAoServidor(dados, idForm, idBotaoLimpar) {
             const formulario = document.getElementById(idForm);
             const botaoEnviar = formulario.querySelector('.btn-enviar');
+            
+            if (!URL_PIPEDREAM) {
+                alert('Erro: A URL do Pipedream ainda não foi configurada no código!');
+                return;
+            }
+
             try {
                 if (botaoEnviar) {
                     botaoEnviar.disabled = true;
-                    botaoEnviar.innerText = "Gravando na Planilha...";
+                    botaoEnviar.innerText = "Gravando via Pipedream...";
                     botaoEnviar.style.opacity = "0.6";
                 }
 
                 dados.executor = usuarioLogado ? usuarioLogado.nome : "Operador Comum";
 
-                // Envio POST estruturado com mode: no-cors para compatibilidade mobile total
-                await fetch(obterUrlServidor(), {
+                const response = await fetch(URL_PIPEDREAM, {
                     method: 'POST',
-                    mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(dados)
                 });
 
-                // Atualização instantânea na memória de busca
+                if (!response.ok) throw new Error('Falha no envio');
+
+                // Atualização em tempo de execução para manter o dashboard funcional localmente
+                historicoCompletoGlobal.push(dados);
                 if (dados.tipoTabela === 'livro_ocorrencia' || dados.falha || dados.solucao) {
                     todasOcorrenciasBanco.push(dados);
                 }
 
-                alert('Dados enviados com sucesso para o Google Sheets!');
+                // Incrementa contagem local temporária
+                if (dados.tipoTabela === 'preventiva') dadosAtividadesLocais.preventivas++;
+                else if (dados.tipoTabela === 'programacao_semanal') dadosAtividadesLocais.programacoes++;
+                else if (dados.tipoTabela === 'livro_ocorrencia') dadosAtividadesLocais.ocorrencias++;
+
+                alert('Dados enviados com sucesso para o Pipedream!');
                 limparRascunhoForm(idForm, idBotaoLimpar);
                 
                 if (usuarioLogado && usuarioLogado.cargo === 'supervisor') {
@@ -1325,12 +1306,7 @@
                     mudarTela('telaMenu');
                 }
             } catch (erro) {
-                if (dados.tipoTabela === 'livro_ocorrencia' || dados.falha || dados.solucao) {
-                    todasOcorrenciasBanco.push(dados);
-                }
-                alert('Ocorrência registrada e disponível localmente para consulta!');
-                limparRascunhoForm(idForm, idBotaoLimpar);
-                mudarTela('telaMenu');
+                alert('Erro ao enviar dados. Verifique a conexão ou a URL do Pipedream.');
             } finally {
                 if (botaoEnviar) {
                     botaoEnviar.disabled = false;
