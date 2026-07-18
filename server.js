@@ -1,5 +1,6 @@
- // ATENÇÃO: Substitua pelo link gerado na implantação do seu Google Apps Script
-const API_URL = "https://script.google.com/macros/s/AKfycbyhUvRJy-XnNPl2Dy4aJ8BETfkOoGX24Hq--JFnaoplMOJgjBJZby1HM-dxVVb9zwgn/exec";
+// O front-end agora conversa com o seu servidor Node.js (server.js) de forma limpa e segura
+const API_DADOS_URL = "/api/dados";
+const API_ENVIAR_URL = "/api/ocorrencia";
 
 let usuarioMatricula = "";
 let chartInstance = null;
@@ -20,7 +21,6 @@ function verificarAcesso() {
         document.getElementById("supervisor-section").classList.remove("hidden");
         inicializarDashboard();
         
-        // RESOLVE O SEU PROBLEMA DE ATUALIZAÇÃO:
         // Executa a função de carregar dados a cada 10 segundos automaticamente
         setInterval(carregarDadosDashboard, 10000);
     } else {
@@ -32,17 +32,17 @@ async function inicializarDashboard() {
     await carregarDadosDashboard();
 }
 
-// Busca os dados atualizados do Google Sheets
+// Busca os dados atualizados do Google Sheets passando pelo server.js
 async function carregarDadosDashboard() {
     try {
-        const response = await fetch(API_URL);
+        const response = await fetch(API_DADOS_URL);
         const res = await response.json();
         
         if (res.success) {
             atualizarInterfaceSupervisor(res.data);
         }
     } catch (err) {
-        console.error("Erro ao sincronizar com o Sheets: ", err);
+        console.error("Erro ao sincronizar com o Sheets através do servidor: ", err);
     }
 }
 
@@ -117,7 +117,7 @@ function atualizarInterfaceSupervisor(data) {
     }
 }
 
-// Envia os dados do operador para o Google Sheets (Livro de Ocorrência + Solução de Problemas)
+// Envia os dados do operador para o servidor (que repassa com segurança ao Sheets)
 async function enviarOcorrencia(event) {
     event.preventDefault();
     
@@ -132,17 +132,22 @@ async function enviarOcorrencia(event) {
     };
 
     try {
-        await fetch(API_URL, {
+        const response = await fetch(API_ENVIAR_URL, {
             method: "POST",
-            mode: "no-cors", // Evita problemas de CORS no envio para o Google Apps Script
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
         
-        alert("Dados gravados com sucesso no Livro de Ocorrência e Solução de Problemas!");
-        document.getElementById("form-ocorrencia").reset();
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            alert("Dados gravados com sucesso no Livro de Ocorrência e Solução de Problemas!");
+            document.getElementById("form-ocorrencia").reset();
+        } else {
+            alert("O servidor respondeu com um erro ao tentar salvar.");
+        }
     } catch (err) {
-        alert("Erro ao enviar dados para a nuvem.");
+        alert("Erro ao enviar dados para o servidor.");
         console.error(err);
     }
 }
