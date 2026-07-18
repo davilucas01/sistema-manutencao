@@ -1,5 +1,5 @@
 // Link direto da implantação do seu Google Apps Script atualizado
-const API_URL = "https://script.google.com/macros/s/AKfycbwfBb6vCk9jV7irDUdAyFjB-Aw2psU7rKmcybdPyOYy12GvchRh3AUo04Ox-A3ypICg/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxvowL1imUIViCUIe27pXu3Fh37jSZPPTIZZE0ObFeJMvTrzCgoyTshgxeOBA4wTRsR6g/exec";
 
 let usuarioMatricula = "";
 let chartInstance = null;
