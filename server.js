@@ -1,8 +1,8 @@
 // =================================================================
-// 1. CONFIGURAÇÃO DA URL (SUA URL DO PIPEDREAM MANTIDA 100%)
+// 1. CONFIGURAÇÃO DAS URLS (PIPEDREAM MANTIDO)
 // =================================================================
 function obterUrlServidor() {
-    // Sua URL original mantida exatamente como você enviou
+    // Sua URL original do Pipedream mantida exatamente como você enviou
     return "https://eopthfj60z574hn.m.pipedream.net";
 }
 
