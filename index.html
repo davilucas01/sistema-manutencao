@@ -414,33 +414,6 @@
             color: #b91c1c;
         }
 
-        /* Estilização dos resultados da busca de soluções */
-        .resultado-solucao-item {
-            background: #f8fafc;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
-        }
-        .resultado-solucao-item p {
-            font-size: 13px;
-            margin-bottom: 4px;
-            color: #334155;
-        }
-        .resultado-solucao-item strong {
-            color: #1e293b;
-        }
-        .badge-solucao {
-            display: inline-block;
-            background-color: #dcfce7;
-            color: #16a34a;
-            font-weight: bold;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 11px;
-            margin-top: 4px;
-        }
-
         @media print {
             body {
                 background: white !important;
@@ -530,8 +503,9 @@
                 <button class="btn-filtro" onclick="filtrarPeriodo('mes', this)">Mês</button>
             </div>
 
+            <!-- CORREÇÃO: ID alterado para canvasGrafico para evitar conflitos no script -->
             <div class="chart-container">
-                <canvas id="meuGrafico"></canvas>
+                <canvas id="canvasGrafico"></canvas>
             </div>
 
             <div class="menu-opcoes">
@@ -546,14 +520,32 @@
             <h3 style="color: #2d3748; margin-top:0; text-align:center; margin-bottom: 5px; text-transform: uppercase;">Solução de Problemas</h3>
             <p style="text-align: center; font-size: 11px; color: #64748b; margin-bottom: 20px;">Livro de Ocorrência</p>
             
+            <!-- CORREÇÃO: ID do input unificado para inputBuscaTag e função correta associada -->
             <div class="form-group">
-                <label>Selecione ou boxe a TAG do equipamento</label>
-                <input type="text" id="busca_tag_solucao" placeholder="Ex: MG11308" oninput="filtrarSolucoesPorTag()">
+                <label>Selecione ou digite a TAG do equipamento</label>
+                <input type="text" id="inputBuscaTag" placeholder="Ex: MG11308" oninput="buscarSolucoesPorTag(this.value)">
             </div>
 
             <div class="titulo-secao" style="margin-top: 20px;">Histórico de Soluções Encontradas</div>
-            <div id="containerResultadosSolucoes" style="max-height: 250px; overflow-y: auto; margin-bottom: 15px; padding-right: 5px;">
-                <p style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px;">Digite a TAG acima para buscar as soluções.</p>
+            
+            <!-- CORREÇÃO: Estrutura alterada de caixas flutuantes para Tabela Organizada com a coluna Executante -->
+            <div class="tabela-responsiva" style="max-height: 250px; overflow-y: auto; margin-bottom: 15px;">
+                <table class="tabela-relatorio">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Falha</th>
+                            <th>Causa</th>
+                            <th>Solução</th>
+                            <th>Executante</th>
+                        </tr>
+                    </thead>
+                    <tbody id="corpoTabelaSolucoes">
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">Digite a TAG acima para buscar as soluções.</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
             <button type="button" class="btn-voltar" onclick="mudarTela('telaMenu')">Voltar ao Menu</button>
@@ -789,9 +781,14 @@
 
     </div>
 
+    <!-- ================================================================= -->
+    <!-- MOTOR LOGICO EM JAVASCRIPT CONECTADO COM O PIPEDREAM E BANCO LOCAL -->
+    <!-- ================================================================= -->
     <script>
-        // URL DO PIPEDREAM ATUALIZADA
-        const URL_PIPEDREAM = "https://eopthfj60z574hn.m.pipedream.net";
+        // CONFIGURAÇÃO DA URL ORIGINAL DO SEU PIPEDREAM (PRESERVADA 100%)
+        function obterUrlServidor() {
+            return "https://eopthfj60z574hn.m.pipedream.net";
+        }
 
         const usuariosPermitidos = {
             "10110021": { senha: "10110021", nome: "David Lucas", cargo: "operador" },
@@ -813,22 +810,27 @@
         };
 
         let usuarioLogado = null;
-        let graficoInstancia = null;
+        window.meuGrafico = null; // Instância unificada do Chart
         let graficoRelatorioInstancia = null;
-        let dadosAtividadesLocais = { preventivas: 0, programacoes: 0, ocorrencias: 0 };
-        let historicoCompletoGlobal = [];
-        let todasOcorrenciasBanco = []; 
+        window.dadosTratadosDashboard = []; // Banco em memória RAM
+        let temporizadorSincronizacao = null;
 
         window.addEventListener('DOMContentLoaded', () => {
             configurarRascunhos('formPreventiva', 'btn_limpar_prev');
             configurarRascunhos('formProgramacao', 'btn_limpar_prog');
             configurarRascunhos('formOcorrencia', 'btn_limpar_oc');
             aplicarPadronizacaoTags();
+            
+            // SEGURANÇA MÁXIMA: Carrega o cache salvo no HD do navegador imediatamente ao abrir o sistema
+            const dadosSalvos = localStorage.getItem("cache_dados_supervisor");
+            if (dadosSalvos) {
+                window.dadosTratadosDashboard = JSON.parse(dadosSalvos);
+            }
             puxarDadosIniciais();
         });
 
         function aplicarPadronizacaoTags() {
-            const inputsTag = document.querySelectorAll('input[data-tag-input], #busca_tag_solucao');
+            const inputsTag = document.querySelectorAll('input[data-tag-input], #inputBuscaTag');
             inputsTag.forEach(input => {
                 input.addEventListener('input', function() {
                     this.value = this.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
@@ -837,157 +839,22 @@
         }
 
         async function puxarDadosIniciais() {
-            if (!URL_PIPEDREAM) return;
+            const url = obterUrlServidor();
             try {
-                const resposta = await fetch(URL_PIPEDREAM);
+                const resposta = await fetch(url);
                 if (resposta.ok) {
                     const dados = await resposta.json();
-                    historicoCompletoGlobal = Array.isArray(dados) ? dados : [];
-                    todasOcorrenciasBanco = historicoCompletoGlobal.filter(item => item.falha || item.solucao || item.tipoTabela === 'livro_ocorrencia');
+                    if (Array.isArray(dados) && dados.length > 0) {
+                        window.dadosTratadosDashboard = dados;
+                        localStorage.setItem('cache_dados_supervisor', JSON.stringify(dados));
+                    }
                 }
             } catch (e) {
-                console.warn("Aguardando configuração de endpoint ativo no Pipedream.");
+                console.warn("Servidor inacessível no boot. Mantendo histórico local persistente.");
             }
         }
 
-        async function abrirTelaSolucoes() {
-            await puxarDadosIniciais(); 
-            document.getElementById('busca_tag_solucao').value = "";
-            document.getElementById('containerResultadosSolucoes').innerHTML = `
-                <p style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px;">Digite a TAG acima para buscar as soluções.</p>
-            `;
-            mudarTela('telaSolucaoProblemas');
-        }
-
-        function filtrarSolucoesPorTag() {
-            const termoBusca = document.getElementById('busca_tag_solucao').value.trim().toUpperCase();
-            const container = document.getElementById('containerResultadosSolucoes');
-            container.innerHTML = "";
-
-            if (!termoBusca) {
-                container.innerHTML = `<p style="text-align: center; color: #94a3b8; font-size: 13px; padding: 20px;">Digite a TAG acima para buscar as soluções.</p>`;
-                return;
-            }
-
-            const resultados = todasOcorrenciasBanco.filter(oc => {
-                const tagLimpa = (oc.tag || "").replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-                return tagLimpa.includes(termoBusca);
-            });
-
-            if (resultados.length === 0) {
-                container.innerHTML = `<p style="text-align: center; color: #ef4444; font-size: 13px; padding: 20px; font-weight: bold;">Nenhum histórico de falha encontrado para a TAG ${termoBusca}.</p>`;
-                return;
-            }
-
-            resultados.forEach(item => {
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'resultado-solucao-item';
-                itemDiv.innerHTML = `
-                    <p><strong>TAG:</strong> <span style="font-family: monospace; background:#e2e8f0; padding:2px 4px; border-radius:4px;">${item.tag}</span></p>
-                    <p><strong>Falha Identificada:</strong> ${item.falha || item.componente || "Não descrita"}</p>
-                    <p><strong>Causa Provável:</strong> ${item.causa || "Não descrita"}</p>
-                    <p style="margin-top: 6px; border-top: 1px dashed #cbd5e1; padding-top: 6px;"><strong>Solução Aplicada:</strong> ${item.solucao || item.obs || "Não informada"}</p>
-                    <span class="badge-solucao">Resolvido por: ${item.executor || item.tecnicos || "Equipe"}</span>
-                `;
-                container.appendChild(itemDiv);
-            });
-        }
-
-        function validarFormulario(idForm) {
-            const form = document.getElementById(idForm);
-            let valido = true;
-            const campos = form.querySelectorAll('input[required], select[required], textarea[required]');
-            
-            campos.forEach(campo => {
-                if (!campo.value.trim()) {
-                    campo.classList.add('invalid');
-                    valido = false;
-                } else {
-                    campo.classList.remove('invalid');
-                }
-                campo.addEventListener('input', function() {
-                    if (this.value.trim()) this.classList.remove('invalid');
-                });
-            });
-            return valido;
-        }
-
-        function configurarRascunhos(idForm, idBotaoLimpar) {
-            const form = document.getElementById(idForm);
-            const campos = form.querySelectorAll('input, select, textarea');
-            const botaoLimpar = document.getElementById(idBotaoLimpar);
-
-            const rascunhoSalvo = localStorage.getItem(`rascunho_${idForm}`);
-            if (rascunhoSalvo) {
-                const dados = JSON.parse(rascunhoSalvo);
-                campos.forEach(campo => {
-                    if (dados[campo.id] !== undefined) {
-                        campo.value = dados[campo.id];
-                    }
-                });
-                if (botaoLimpar) botaoLimpar.style.display = 'block';
-            }
-
-            campos.forEach(campo => {
-                campo.addEventListener('input', () => {
-                    const dadosForm = {};
-                    campos.forEach(c => { dadosForm[c.id] = c.value; });
-                    localStorage.setItem(`rascunho_${idForm}`, JSON.stringify(dadosForm));
-                    if (botaoLimpar) botaoLimpar.style.display = 'block';
-                });
-            });
-        }
-
-        function limparRascunhoForm(idForm, idBotaoLimpar) {
-            const form = document.getElementById(idForm);
-            form.reset();
-            localStorage.removeItem(`rascunho_${idForm}`);
-            if(document.getElementById(idBotaoLimpar)) document.getElementById(idBotaoLimpar).style.display = 'none';
-        }
-
-        document.getElementById('formLogin').addEventListener('submit', function(e) {
-            e.preventDefault();
-            if(!validarFormulario('formLogin')) return alert('Por favor, preencha todos os campos obrigatórios.');
-
-            const matricula = document.getElementById('login_matricula').value.trim();
-            const senha = document.getElementById('login_senha').value;
-            const usuario = usuariosPermitidos[matricula];
-
-            if (usuario && usuario.senha === senha) {
-                usuarioLogado = usuario;
-                document.getElementById('userBadge').innerText = `Olá, ${usuario.nome}`;
-                document.getElementById('userBadge').style.display = 'block';
-                document.getElementById('btnLogout').style.display = 'block';
-                document.getElementById('formLogin').reset();
-
-                if (usuario.cargo === 'supervisor') {
-                    mudarTela('telaDashboard');
-                    carregarDadosDashboard(); 
-                } else {
-                    mudarTela('telaMenu');
-                }
-            } else {
-                alert('Matrícula ou senha incorretas! Acesso negado.');
-            }
-        });
-
-        function voltarDoMenu() {
-            if (usuarioLogado && usuarioLogado.cargo === 'supervisor') {
-                mudarTela('telaDashboard');
-                carregarDadosDashboard(); 
-            } else {
-                fazerLogout();
-            }
-        }
-
-        function fazerLogout() {
-            usuarioLogado = null;
-            document.getElementById('userBadge').style.display = 'none';
-            document.getElementById('btnLogout').style.display = 'none';
-            document.getElementById('formLogin').reset();
-            mudarTela('telaLogin');
-        }
-
+        // CONTROLADOR DE FLUXO E CACHE LOCAL DAS TELAS
         function mudarTela(idTela) {
             const container = document.getElementById('mainContainer');
             if (idTela === 'telaRelatorio') {
@@ -995,41 +862,111 @@
             } else {
                 container.classList.remove('modo-relatorio');
             }
+            
             document.querySelectorAll('.tela').forEach(tela => tela.classList.remove('ativa'));
-            document.getElementById(idTela).classList.add('ativa');
+            const telaAlvo = document.getElementById(idTela);
+            if (telaAlvo) telaAlvo.classList.add('ativa');
             container.scrollTop = 0;
+
+            // Ativa o dashboard persistente em tempo real
+            if (idTela === 'telaDashboard') {
+                const dadosSalvos = localStorage.getItem("cache_dados_supervisor");
+                if (dadosSalvos) {
+                    window.dadosTratadosDashboard = JSON.parse(dadosSalvos);
+                    atualizarGrafico(window.dadosTratadosDashboard);
+                }
+                carregarDadosDashboard(); 
+                if (temporizadorSincronizacao) clearInterval(temporizadorSincronizacao);
+                temporizadorSincronizacao = setInterval(carregarDadosDashboard, 15000);
+            } else {
+                if (temporizadorSincronizacao) {
+                    clearInterval(temporizadorSincronizacao);
+                    temporizadorSincronizacao = null;
+                }
+            }
         }
 
-        async function carregarDadosDashboard() {
-            let dados = { preventivas: 0, programacoes: 0, ocorrencias: 0 };
-            
-            if (historicoCompletoGlobal.length > 0) {
-                historicoCompletoGlobal.forEach(item => {
-                    const tipo = item.tipoTabela || "";
-                    if (tipo === 'preventiva') dados.preventivas++;
-                    else if (tipo === 'programacao_semanal') dados.programacoes++;
-                    else if (tipo === 'livro_ocorrencia') dados.ocorrencias++;
-                });
-                dadosAtividadesLocais = { ...dados };
-            } else {
-                dados = { ...dadosAtividadesLocais };
+        function carregarDadosDashboard() {
+            const url = obterUrlServidor();
+            fetch(url)
+            .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+            .then(dados => {
+                if (Array.isArray(dados) && dados.length > 0) {
+                    window.dadosTratadosDashboard = dados; 
+                    localStorage.setItem("cache_dados_supervisor", JSON.stringify(dados));
+                    atualizarGrafico(dados);               
+                    
+                    const inputBusca = document.getElementById("inputBuscaTag");
+                    if (inputBusca && inputBusca.value.trim() !== "") {
+                        buscarSolucoesPorTag(inputBusca.value);
+                    }
+                }
+            })
+            .catch(() => {
+                const dadosSalvos = localStorage.getItem("cache_dados_supervisor");
+                if (dadosSalvos) {
+                    window.dadosTratadosDashboard = JSON.parse(dadosSalvos);
+                    atualizarGrafico(window.dadosTratadosDashboard);
+                }
+            });
+        }
+
+        // RENDERIZAÇÃO DO GRÁFICO DO SUPERVISOR (CHART.JS)
+        function atualizarGrafico(dados) {
+            const ctx = document.getElementById("canvasGrafico")?.getContext("2d");
+            if (!ctx) return;
+
+            if (window.meuGrafico instanceof Chart) {
+                window.meuGrafico.destroy();
             }
-            renderizarGrafico(dados);
+
+            const contagem = { preventiva: 0, programacao_semanal: 0, livro_ocorrencia: 0 };
+            dados.forEach(item => {
+                const tabela = item.tipoTabela || "";
+                if (contagem[tabela] !== undefined) contagem[tabela]++;
+            });
+
+            const maxValor = Math.max(contagem.preventiva, contagem.programacao_semanal, contagem.livro_ocorrencia);
+            const sugeridoMax = maxValor === 0 ? 5 : maxValor + 2;
+
+            window.meuGrafico = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Preventivas', 'Prog. Semanal', 'Livro Ocorrência'],
+                    datasets: [{
+                        data: [contagem.preventiva, contagem.programacao_semanal, contagem.livro_ocorrencia],
+                        backgroundColor: ['#2d3748', '#4a5568', '#d31d1d'],
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, suggestedMax: sugeridoMax, ticks: { stepSize: 1 } } }
+                }
+            });
         }
 
         function filtrarPeriodo(periodo, botao) {
             document.querySelectorAll('.btn-filtro').forEach(btn => btn.classList.remove('ativo'));
             botao.classList.add('ativo');
 
+            let dadosOrigem = window.dadosTratadosDashboard || [];
+            if (dadosOrigem.length === 0) {
+                const dadosSalvos = localStorage.getItem("cache_dados_supervisor");
+                if (dadosSalvos) dadosOrigem = JSON.parse(dadosSalvos);
+            }
+
             if (periodo === 'tudo') {
-                renderizarGrafico(dadosAtividadesLocais);
+                atualizarGrafico(dadosOrigem);
                 return;
             }
 
-            let dadosFiltrados = { preventivas: 0, programacoes: 0, ocorrencias: 0 };
+            const contagemFiltrada = { preventiva: 0, programacao_semanal: 0, livro_ocorrencia: 0 };
             const hoje = new Date();
 
-            historicoCompletoGlobal.forEach(item => {
+            dadosOrigem.forEach(item => {
                 const dataStr = item.data || item.dataInicio || item.dataTermino;
                 if (!dataStr) return;
 
@@ -1045,65 +982,72 @@
                 else if (periodo === 'mes' && diffDias <= 30) incluir = true;
 
                 if (incluir) {
-                    const tipo = item.tipoTabela || "";
-                    if (tipo === 'preventiva') dadosFiltrados.preventivas++;
-                    else if (tipo === 'programacao_semanal') dadosFiltrados.programacoes++;
-                    else if (tipo === 'livro_ocorrencia') dadosFiltrados.ocorrencias++;
+                    const tabela = item.tipoTabela || "";
+                    if (contagemFiltrada[tabela] !== undefined) contagemFiltrada[tabela]++;
                 }
             });
 
-            const totalFiltrado = dadosFiltrados.preventivas + dadosFiltrados.programacoes + dadosFiltrados.ocorrencias;
-            if (totalFiltrado === 0) {
-                if (periodo === 'hoje') {
-                    dadosFiltrados = { 
-                        preventivas: Math.min(1, dadosAtividadesLocais.preventivas), 
-                        programacoes: Math.min(1, dadosAtividadesLocais.programacoes), 
-                        ocorrencias: Math.min(1, dadosAtividadesLocais.ocorrencias) 
-                    };
-                } else if (periodo === 'semana') {
-                    dadosFiltrados = { 
-                        preventivas: Math.round(dadosAtividadesLocais.preventivas * 0.3), 
-                        programacoes: Math.round(dadosAtividadesLocais.programacoes * 0.3), 
-                        ocorrencias: Math.round(dadosAtividadesLocais.ocorrencias * 0.3) 
-                    };
-                } else if (periodo === 'mes') {
-                    dadosFiltrados = { 
-                        preventivas: Math.round(dadosAtividadesLocais.preventivas * 0.7), 
-                        programacoes: Math.round(dadosAtividadesLocais.programacoes * 0.7), 
-                        ocorrencias: Math.round(dadosAtividadesLocais.ocorrencias * 0.7) 
-                    };
-                }
+            atualizarGrafico([
+                ...Array(contagemFiltrada.preventiva).fill({tipoTabela: 'preventiva'}),
+                ...Array(contagemFiltrada.programacao_semanal).fill({tipoTabela: 'programacao_semanal'}),
+                ...Array(contagemFiltrada.livro_ocorrencia).fill({tipoTabela: 'livro_ocorrencia'})
+            ]);
+        }
+
+        // SISTEMA HISTÓRICO DE SOLUÇÃO DE PROBLEMAS (TABELA DEFINITIVA)
+        async function abrirTelaSolucoes() {
+            await puxarDadosIniciais(); 
+            const input = document.getElementById('inputBuscaTag');
+            if(input) input.value = "";
+            document.getElementById('corpoTabelaSolucoes').innerHTML = `
+                <tr><td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">Digite a TAG acima para buscar as soluções.</td></tr>
+            `;
+            mudarTela('telaSolucaoProblemas');
+        }
+
+        function buscarSolucoesPorTag(tagBusca) {
+            const corpoTabela = document.getElementById("corpoTabelaSolucoes");
+            if (!corpoTabela) return;
+
+            const tagTratada = tagBusca.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+            if (!tagTratada) {
+                corpoTabela.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">Digite a TAG acima para buscar as soluções.</td></tr>`;
+                return;
             }
 
-            renderizarGrafico(dadosFiltrados);
-        }
+            let dados = window.dadosTratadosDashboard || [];
+            if (dados.length === 0) {
+                const dadosSalvos = localStorage.getItem("cache_dados_supervisor");
+                if (dadosSalvos) dados = JSON.parse(dadosSalvos);
+            }
 
-        function renderizarGrafico(dados) {
-            const ctx = document.getElementById('meuGrafico').getContext('2d');
-            if (graficoInstancia) graficoInstancia.destroy();
+            const resultados = dados.filter(item => {
+                const tagLimpa = (item.tag || "").replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                return (item.tipoTabela === 'livro_ocorrencia' || item.falha || item.solucao) && tagLimpa.includes(tagTratada);
+            });
 
-            const maxValor = Math.max(dados.preventivas, dados.programacoes, dados.ocorrencias);
-            const sugeridoMax = maxValor === 0 ? 5 : maxValor + 2;
+            corpoTabela.innerHTML = "";
 
-            graficoInstancia = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['Preventivas', 'Prog. Semanal', 'Livro Ocorrência'],
-                    datasets: [{
-                        data: [dados.preventivas, dados.programacoes, dados.ocorrencias],
-                        backgroundColor: ['#2d3748', '#4a5568', '#d31d1d'],
-                        borderRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { y: { beginAtZero: true, suggestedMax: sugeridoMax, ticks: { stepSize: 1 } } }
-                }
+            if (resultados.length === 0) {
+                corpoTabela.innerHTML = `<tr><td colspan="5" style="text-align:center; color: #ef4444; font-weight: bold; padding: 20px;">Nenhum histórico encontrado para a TAG ${tagTratada}.</td></tr>`;
+                return;
+            }
+
+            resultados.forEach(item => {
+                const linhaHTML = `
+                    <tr>
+                        <td>${item.data ? formatarData(item.data) : '-'}</td>
+                        <td style="font-weight: 600; color: #dc2626;">${item.falha || item.componente || 'Não informada'}</td>
+                        <td>${item.causa || 'Não informada'}</td>
+                        <td style="font-weight: 600; color: #16a34a;">${item.solucao || item.obs || 'Em andamento'}</td>
+                        <td><strong>${item.tecnicos || item.executantes || item.executor || 'Equipe'}</strong></td>
+                    </tr>
+                `;
+                corpoTabela.insertAdjacentHTML('beforeend', linhaHTML);
             });
         }
 
+        // INTERFACE DO GERADOR DE RELATÓRIO INTERNO
         async function exibirRelatorioInterno() {
             const botao = document.getElementById('btnEmitirRelatorio');
             botao.disabled = true;
@@ -1111,11 +1055,14 @@
 
             document.getElementById('relatorioDataEmissao').innerText = `Data de Emissão: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`;
             
-            let qtdPrev = 0;
-            let qtdProg = 0;
-            let qtdOco = 0;
+            let qtdPrev = 0, qtdProg = 0, qtdOco = 0;
+            let dadosOrigem = window.dadosTratadosDashboard || [];
+            if(dadosOrigem.length === 0) {
+                const salvos = localStorage.getItem("cache_dados_supervisor");
+                if(salvos) dadosOrigem = JSON.parse(salvos);
+            }
 
-            historicoCompletoGlobal.forEach(item => {
+            dadosOrigem.forEach(item => {
                 const tipo = item.tipoTabela || "";
                 if (tipo === 'preventiva') qtdPrev++;
                 else if (tipo === 'programacao_semanal') qtdProg++;
@@ -1138,13 +1085,13 @@
             const corpoTabela = document.getElementById('corpoTabelaDetalhada');
             corpoTabela.innerHTML = "";
 
-            if(historicoCompletoGlobal.length === 0) {
-                corpoTabela.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#64748b;">Nenhum detalhamento individual carregado. Exibindo resumo consolidado acima.</td></tr>`;
+            if(dadosOrigem.length === 0) {
+                corpoTabela.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#64748b;">Nenhum detalhamento individual carregado.</td></tr>`;
             } else {
-                historicoCompletoGlobal.forEach(item => {
+                dadosOrigem.forEach(item => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td style="font-weight: 700;">${item.executor || "Não Informado"}</td>
+                        <td style="font-weight: 700;">${item.executor || item.tecnicos || "Não Informado"}</td>
                         <td><span style="background-color: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-weight:600; font-family: monospace;">${item.tag || "N/A"}</span></td>
                         <td style="line-height: 1.4; color: #475569;">${item.obs || item.observacoes || item.solucao || "Sem observações registradas."}</td>
                     `;
@@ -1181,39 +1128,8 @@
             });
         }
 
-        function exportarExcelFormatado() {
-            const dataHoje = new Date().toLocaleDateString('pt-BR');
-            let detalhamentoRowsXml = '';
-            
-            if (historicoCompletoGlobal.length === 0) {
-                detalhamentoRowsXml = `<Row ss:Height="24"><Cell ss:MergeAcross="3" ss:StyleID="Dados"><Data ss:Type="String">Nenhum detalhamento carregado.</Data></Cell></Row>`;
-            } else {
-                historicoCompletoGlobal.forEach(item => {
-                    detalhamentoRowsXml += `
-                    <Row ss:Height="22">
-                        <Cell ss:StyleID="Dados"><Data ss:Type="String">${item.executor || "Não Informado"}</Data></Cell>
-                        <Cell ss:StyleID="Dados"><Data ss:Type="String">${item.tag || "N/A"}</Data></Cell>
-                        <Cell ss:MergeAcross="1" ss:StyleID="Dados"><Data ss:Type="String">${item.obs || item.observacoes || item.solucao || ""}</Data></Cell>
-                    </Row>`;
-                });
-            }
-
-            const totalRows = 15 + historicoCompletoGlobal.length;
-            let xml = `<?xml version="1.0" encoding="utf-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Titulo"><Font ss:FontName="Segoe UI" ss:Size="13" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#A61C1C" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style><Style ss:ID="Cabecalho"><Font ss:FontName="Segoe UI" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1F2937" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style><Style ss:ID="Dados"><Font ss:FontName="Segoe UI" ss:Size="10"/><Alignment ss:Horizontal="Left"/></Style><Style ss:ID="Numeros"><Font ss:FontName="Segoe UI" ss:Bold="1"/><Alignment ss:Horizontal="Center"/></Style></Styles><Worksheet ss:Name="Manutenção"><Table ss:ExpandedColumnCount="4" ss:ExpandedRowCount="${totalRows}"><Column ss:Width="180"/><Column ss:Width="100"/><Column ss:Width="100"/><Column ss:Width="250"/><Row ss:Height="35"><Cell ss:MergeAcross="3" ss:StyleID="Titulo"><Data ss:Type="String">KATOEN NATIE - CONSOLIDAÇÃO</Data></Cell></Row><Row><Cell><Data ss:Type="String">Emissão: ${dataHoje}</Data></Cell></Row>${detalhamentoRowsXml}</Table></Worksheet></Workbook>`;
-
-            const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8;" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `relatorio_manutencao_ktn_${new Date().toISOString().slice(0,10)}.xls`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        // ENVIO DOS FORMULÁRIOS ADAPTADOS PARA PIPEDREAM
-        document.getElementById('formPreventiva').addEventListener('submit', async (e) => {
+        // DISPARADORES DOS FORMULÁRIOS DE REGISTRO
+        document.getElementById('formPreventiva').addEventListener('submit', function(e) {
             e.preventDefault();
             if (!validarFormulario('formPreventiva')) return alert('Preencha os campos obrigatórios!');
             enviarAoServidor({
@@ -1229,7 +1145,7 @@
             }, 'formPreventiva', 'btn_limpar_prev');
         });
 
-        document.getElementById('formProgramacao').addEventListener('submit', async (e) => {
+        document.getElementById('formProgramacao').addEventListener('submit', function(e) {
             e.preventDefault();
             if (!validarFormulario('formProgramacao')) return alert('Preencha os campos obrigatórios!');
             enviarAoServidor({
@@ -1244,7 +1160,7 @@
             }, 'formProgramacao', 'btn_limpar_prog');
         });
 
-        document.getElementById('formOcorrencia').addEventListener('submit', async (e) => {
+        document.getElementById('formOcorrencia').addEventListener('submit', function(e) {
             e.preventDefault();
             if (!validarFormulario('formOcorrencia')) return alert('Preencha os campos obrigatórios!');
             enviarAoServidor({
@@ -1260,14 +1176,10 @@
         });
 
         async function enviarAoServidor(dados, idForm, idBotaoLimpar) {
+            const url = obterUrlServidor();
             const formulario = document.getElementById(idForm);
             const botaoEnviar = formulario.querySelector('.btn-enviar');
             
-            if (!URL_PIPEDREAM) {
-                alert('Erro: A URL do Pipedream ainda não foi configurada no código!');
-                return;
-            }
-
             try {
                 if (botaoEnviar) {
                     botaoEnviar.disabled = true;
@@ -1277,7 +1189,7 @@
 
                 dados.executor = usuarioLogado ? usuarioLogado.nome : "Operador Comum";
 
-                const response = await fetch(URL_PIPEDREAM, {
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(dados)
@@ -1285,28 +1197,22 @@
 
                 if (!response.ok) throw new Error('Falha no envio');
 
-                // Atualização em tempo de execução para manter o dashboard funcional localmente
-                historicoCompletoGlobal.push(dados);
-                if (dados.tipoTabela === 'livro_ocorrencia' || dados.falha || dados.solucao) {
-                    todasOcorrenciasBanco.push(dados);
-                }
-
-                // Incrementa contagem local temporária
-                if (dados.tipoTabela === 'preventiva') dadosAtividadesLocais.preventivas++;
-                else if (dados.tipoTabela === 'programacao_semanal') dadosAtividadesLocais.programacoes++;
-                else if (dados.tipoTabela === 'livro_ocorrencia') dadosAtividadesLocais.ocorrencias++;
+                window.dadosTratadosDashboard.push(dados);
+                localStorage.setItem('cache_dados_supervisor', JSON.stringify(window.dadosTratadosDashboard));
 
                 alert('Dados enviados com sucesso para o Pipedream!');
                 limparRascunhoForm(idForm, idBotaoLimpar);
                 
                 if (usuarioLogado && usuarioLogado.cargo === 'supervisor') {
                     mudarTela('telaDashboard');
-                    carregarDadosDashboard(); 
                 } else {
                     mudarTela('telaMenu');
                 }
             } catch (erro) {
-                alert('Erro ao enviar dados. Verifique a conexão ou a URL do Pipedream.');
+                alert('Erro na rede. Armazenando dados em cache alternativo local.');
+                let fila = JSON.parse(localStorage.getItem("fila_sincronizacao")) || [];
+                fila.push({ dados: dados, idForm: idForm, idBotaoLimpar: idBotaoLimpar });
+                localStorage.setItem("fila_sincronizacao", JSON.stringify(fila));
             } finally {
                 if (botaoEnviar) {
                     botaoEnviar.disabled = false;
@@ -1315,6 +1221,136 @@
                     botaoEnviar.style.opacity = "1";
                 }
             }
+        }
+
+        // GERENCIAMENTO DA SESSÃO E LOGIN DE SEGURANÇA
+        document.getElementById('formLogin').addEventListener('submit', function(e) {
+            e.preventDefault();
+            if(!validarFormulario('formLogin')) return alert('Por favor, preencha todos os campos obrigatórios.');
+
+            const matricula = document.getElementById('login_matricula').value.trim();
+            const senha = document.getElementById('login_senha').value;
+            const usuario = usuariosPermitidos[matricula];
+
+            if (usuario && usuario.senha === senha) {
+                usuarioLogado = usuario;
+                document.getElementById('userBadge').innerText = `Olá, ${usuario.nome}`;
+                document.getElementById('userBadge').style.display = 'block';
+                document.getElementById('btnLogout').style.display = 'block';
+                document.getElementById('formLogin').reset();
+
+                if (usuario.cargo === 'supervisor') {
+                    mudarTela('telaDashboard');
+                } else {
+                    mudarTela('telaMenu');
+                }
+            } else {
+                alert('Matrícula ou senha incorretas! Acesso negado.');
+            }
+        });
+
+        function voltarDoMenu() {
+            if (usuarioLogado && usuarioLogado.cargo === 'supervisor') {
+                mudarTela('telaDashboard');
+            } else {
+                fazerLogout();
+            }
+        }
+
+        function fazerLogout() {
+            usuarioLogado = null;
+            document.getElementById('userBadge').style.display = 'none';
+            document.getElementById('btnLogout').style.display = 'none';
+            document.getElementById('formLogin').reset();
+            mudarTela('telaLogin');
+        }
+
+        // ROTINAS AUXILIARES (VALIDAÇÃO, RASCUNHO E EXPORTAÇÃO)
+        function validarFormulario(idForm) {
+            const form = document.getElementById(idForm);
+            let valido = true;
+            const campos = form.querySelectorAll('input[required], select[required], textarea[required]');
+            
+            campos.forEach(campo => {
+                if (!campo.value.trim()) {
+                    campo.classList.add('invalid');
+                    valido = false;
+                } else {
+                    campo.classList.remove('invalid');
+                }
+            });
+            return valido;
+        }
+
+        function configurarRascunhos(idForm, idBotaoLimpar) {
+            const form = document.getElementById(idForm);
+            const campos = form.querySelectorAll('input, select, textarea');
+            const botaoLimpar = document.getElementById(idBotaoLimpar);
+
+            const rascunhoSalvo = localStorage.getItem(`rascunho_${idForm}`);
+            if (rascunhoSalvo) {
+                const dados = JSON.parse(rascunhoSalvo);
+                campos.forEach(campo => {
+                    if (dados[campo.id] !== undefined) campo.value = dados[campo.id];
+                });
+                if (botaoLimpar) botaoLimpar.style.display = 'block';
+            }
+
+            campos.forEach(campo => {
+                campo.addEventListener('input', () => {
+                    const dadosForm = {};
+                    campos.forEach(c => { dadosForm[c.id] = c.value; });
+                    localStorage.setItem(`rascunho_${idForm}`, JSON.stringify(dadosForm));
+                    if (botaoLimpar) botaoLimpar.style.display = 'block';
+                });
+            });
+        }
+
+        function limparRascunhoForm(idForm, idBotaoLimpar) {
+            const form = document.getElementById(idForm);
+            if(form) form.reset();
+            localStorage.removeItem(`rascunho_${idForm}`);
+            if(document.getElementById(idBotaoLimpar)) document.getElementById(idBotaoLimpar).style.display = 'none';
+        }
+
+        function formatarData(stringData) {
+            try {
+                const d = new Date(stringData);
+                if (isNaN(d.getTime())) return stringData;
+                return d.toLocaleDateString('pt-BR');
+            } catch { return stringData; }
+        }
+
+        function exportarExcelFormatado() {
+            const dataHoje = new Date().toLocaleDateString('pt-BR');
+            let detalhamentoRowsXml = '';
+            let dadosOrigem = window.dadosTratadosDashboard || [];
+            
+            if (dadosOrigem.length === 0) {
+                detalhamentoRowsXml = `<Row ss:Height="24"><Cell ss:MergeAcross="3" ss:StyleID="Dados"><Data ss:Type="String">Nenhum detalhamento carregado.</Data></Cell></Row>`;
+            } else {
+                dadosOrigem.forEach(item => {
+                    detalhamentoRowsXml += `
+                    <Row ss:Height="22">
+                        <Cell ss:StyleID="Dados"><Data ss:Type="String">${item.executor || item.tecnicos || "Não Informado"}</Data></Cell>
+                        <Cell ss:StyleID="Dados"><Data ss:Type="String">${item.tag || "N/A"}</Data></Cell>
+                        <Cell ss:MergeAcross="1" ss:StyleID="Dados"><Data ss:Type="String">${item.obs || item.observacoes || item.solucao || ""}</Data></Cell>
+                    </Row>`;
+                });
+            }
+
+            const totalRows = 15 + dadosOrigem.length;
+            let xml = `<?xml version="1.0" encoding="utf-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Titulo"><Font ss:FontName="Segoe UI" ss:Size="13" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#A61C1C" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style><Style ss:ID="Cabecalho"><Font ss:FontName="Segoe UI" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1F2937" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Center="Center"/></Style><Style ss:ID="Dados"><Font ss:FontName="Segoe UI" ss:Size="10"/><Alignment ss:Horizontal="Left"/></Style></Styles><Worksheet ss:Name="Manutenção"><Table ss:ExpandedColumnCount="4" ss:ExpandedRowCount="${totalRows}"><Column ss:Width="180"/><Column ss:Width="100"/><Column ss:Width="100"/><Column ss:Width="250"/><Row ss:Height="35"><Cell ss:MergeAcross="3" ss:StyleID="Titulo"><Data ss:Type="String">KATOEN NATIE - CONSOLIDAÇÃO</Data></Cell></Row><Row><Cell><Data ss:Type="String">Emissão: ${dataHoje}</Data></Cell></Row>${detalhamentoRowsXml}</Table></Worksheet></Workbook>`;
+
+            const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `relatorio_manutencao_ktn_${new Date().toISOString().slice(0,10)}.xls`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
     </script>
 </body>

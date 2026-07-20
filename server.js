@@ -1,14 +1,14 @@
 // =================================================================
-// 1. CONFIGURAÇÃO DA URL (INSIRA SEU LINK DO PIPEDREAM AQUI)
+// 1. CONFIGURAÇÃO DA URL (SUA URL DO PIPEDREAM MANTIDA 100%)
 // =================================================================
 function obterUrlServidor() {
-    // Substitua o texto abaixo pela URL (Endpoint) gerada na sua conta do Pipedream
+    // Sua URL original mantida exatamente como você enviou
     return "https://eopthfj60z574hn.m.pipedream.net";
 }
 
 // Variável global para gerenciar o gráfico (Evita erro de Canvas em uso)
 window.meuGrafico = null;
-// Variável global para armazenar o cache de dados vindos do Excel (via Pipedream/Power Query)
+// Variável global para armazenar o cache em memória
 window.dadosTratadosDashboard = [];
 // Armazena o ID do intervalo de atualização para poder limpá-lo
 let temporizadorSincronizacao = null;
@@ -17,24 +17,27 @@ let temporizadorSincronizacao = null;
 // 2. CONTROLE DE TELAS E FLUXO DO DASHBOARD
 // =================================================================
 function mudarTela(idTela) {
-    // Remove a classe ativa de todas as telas para ocultá-las
     document.querySelectorAll('.tela').forEach(tela => tela.classList.remove('ativa'));
     
-    // Ativa a tela que o usuário clicou
     const telaAlvo = document.getElementById(idTela);
     if (telaAlvo) telaAlvo.classList.add('ativa');
 
     // Se entrou na tela do Dashboard/Supervisor, liga a atualização em tempo real
     if (idTela === 'telaDashboard') {
-        carregarDadosDashboard(); // Roda imediatamente
+        // AJUSTE DO SISTEMA: Puxa o que já estava salvo no computador antes de ir na rede
+        const dadosSalvos = localStorage.getItem("cache_dados_supervisor");
+        if (dadosSalvos) {
+            window.dadosTratadosDashboard = JSON.parse(dadosSalvos);
+            atualizarGrafico(window.dadosTratadosDashboard);
+        }
+
+        carregarDadosDashboard(); // Puxa dados novos do Pipedream
         
-        // Evita criar múltiplos loops duplicados se clicar no botão várias vezes
         if (temporizadorSincronizacao) clearInterval(temporizadorSincronizacao);
         
-        // Configura o loop para atualizar a cada 15 segundos em background
+        // Mantém a sincronização de fundo a cada 15 segundos
         temporizadorSincronizacao = setInterval(carregarDadosDashboard, 15000);
     } else {
-        // Se saiu do Dashboard, desliga o temporizador para economizar memória e internet
         if (temporizadorSincronizacao) {
             clearInterval(temporizadorSincronizacao);
             temporizadorSincronizacao = null;
@@ -53,19 +56,29 @@ function carregarDadosDashboard() {
         return res.json();
     })
     .then(dados => {
-        if (Array.isArray(dados)) {
-            // CORRIGIDO: Forçando a escrita exata da variável global
+        if (Array.isArray(dados) && dados.length > 0) {
             window.dadosTratadosDashboard = dados; 
-            atualizarGrafico(dados);               // Updates chart on screen
             
-            // Se o supervisor já estiver com uma TAG digitada na busca, atualiza a tabela na hora
-            const tagBusca = document.getElementById("inputBuscaTag")?.value;
-            if (tagBusca) {
-                buscarSolucoesPorTag(tagBusca);
+            // CORREÇÃO INTERNA: Salva permanentemente no navegador do supervisor para não sumir ao desligar
+            localStorage.setItem("cache_dados_supervisor", JSON.stringify(dados));
+            
+            atualizarGrafico(dados);               
+            
+            const inputBusca = document.getElementById("inputBuscaTag");
+            if (inputBusca && inputBusca.value.trim() !== "") {
+                buscarSolucoesPorTag(inputBusca.value);
             }
         }
     })
-    .catch(err => console.error("Erro ao puxar atualizações do Excel via Pipedream:", err));
+    .catch(err => {
+        console.error("Erro na rede ao puxar dados do Pipedream. Usando cache local:", err);
+        // Se a rede falhar ou o computador for ligado offline, mantém os dados salvos na tela
+        const dadosSalvos = localStorage.getItem("cache_dados_supervisor");
+        if (dadosSalvos) {
+            window.dadosTratadosDashboard = JSON.parse(dadosSalvos);
+            atualizarGrafico(window.dadosTratadosDashboard);
+        }
+    });
 }
 
 // =================================================================
@@ -75,12 +88,10 @@ function atualizarGrafico(dados) {
     const ctx = document.getElementById("canvasGrafico")?.getContext("2d");
     if (!ctx) return;
 
-    // CORREÇÃO CRÍTICA: Se o gráfico já existir, destrói a instância antiga para não travar o canvas
     if (window.meuGrafico instanceof Chart) {
         window.meuGrafico.destroy();
     }
 
-    // Consolida e conta quantos registros existem de cada tabela
     const contagem = { preventiva: 0, programacao_semanal: 0, livro_ocorrencia: 0 };
     dados.forEach(item => {
         if (contagem[item.tipoTabela] !== undefined) {
@@ -88,7 +99,6 @@ function atualizarGrafico(dados) {
         }
     });
 
-    // Gera o novo gráfico atualizado
     window.meuGrafico = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -116,28 +126,30 @@ function buscarSolucoesPorTag(tagBusca) {
     const corpoTabela = document.getElementById("corpoTabelaSolucoes");
     if (!corpoTabela) return;
 
-    // CORREÇÃO CRÍTICA: Limpa as linhas antigas antes de renderizar para não acumular/duplicar dados
-    corpoTabela.innerHTML = "";
-
-    const dados = window.dadosTratadosDashboard || [];
     const tagTratada = tagBusca.trim().toUpperCase();
-
     if (!tagTratada) return;
 
-    // Filtra no banco apenas o que for 'livro_ocorrencia' e bater com a TAG pesquisada
+    let dados = window.dadosTratadosDashboard || [];
+    if (dados.length === 0) {
+        const dadosSalvos = localStorage.getItem("cache_dados_supervisor");
+        if (dadosSalvos) dados = JSON.parse(dadosSalvos);
+    }
+
+    // Filtra apenas o livro de ocorrência da TAG pesquisada
     const resultados = dados.filter(item => 
         item.tipoTabela === 'livro_ocorrencia' && 
         item.tag && 
         item.tag.trim().toUpperCase() === tagTratada
     );
 
-    // Se não achar nada, avisa o usuário de forma limpa na tabela
+    corpoTabela.innerHTML = "";
+
     if (resultados.length === 0) {
-        corpoTabela.innerHTML = `<tr><td colspan="4" style="text-align:center; color: #6b7280;">Nenhuma ocorrência registrada para esta TAG.</td></tr>`;
+        corpoTabela.innerHTML = `<tr><td colspan="5" style="text-align:center; color: #6b7280;">Nenhuma ocorrência registrada para esta TAG.</td></tr>`;
         return;
     }
 
-    // Injeta as linhas tratadas contra valores nulos/vazios
+    // Injeta as linhas mantendo o histórico salvo com Falha, Causa, Solução e o Executante solicitado
     resultados.forEach(item => {
         const linhaHTML = `
             <tr>
@@ -145,6 +157,7 @@ function buscarSolucoesPorTag(tagBusca) {
                 <td style="font-weight: 600; color: #dc2626;">${item.falha || 'Não informada'}</td>
                 <td>${item.causa || 'Não informada'}</td>
                 <td style="font-weight: 600; color: #16a34a;">${item.solucao || 'Em andamento'}</td>
+                <td><strong>${item.executante || item.nome || 'Não informado'}</strong></td>
             </tr>
         `;
         corpoTabela.insertAdjacentHTML('beforeend', linhaHTML);
@@ -157,17 +170,14 @@ function buscarSolucoesPorTag(tagBusca) {
 function enviarAoServidor(dados, tipoTabela) {
     const url = obterUrlServidor();
     
-    // Se não houver URL configurada, armazena direto no LocalStorage para não perder a informação
     if (!url || url.includes("SUA_URL_DO_PIPEDREAM_AQUI")) {
         console.warn("URL do Pipedream não configurada. Salvando localmente.");
         salvarDadosLocais(dados, tipoTabela);
         return;
     }
 
-    // Adiciona o tipo da tabela junto aos dados enviados
     const payload = { ...dados, tipoTabela: tipoTabela };
 
-    // Correção de envio: Remoção do 'no-cors' para permitir validação real de recebimento pelo Pipedream
     fetch(url, {
         method: "POST",
         headers: {
@@ -179,6 +189,8 @@ function enviarAoServidor(dados, tipoTabela) {
         if (!res.ok) throw new Error("Erro na gravação do servidor.");
         console.log(`Dados enviados com sucesso para o Pipedream: ${tipoTabela}`);
         limparFormularioAtual(tipoTabela);
+        // Atualiza imediatamente o painel do supervisor após o envio do operador
+        carregarDadosDashboard();
     })
     .catch(erro => {
         console.error("Erro na rede. Armazenando dados no LocalStorage:", erro);
@@ -192,7 +204,6 @@ function salvarDadosLocais(dados, tipoTabela) {
     localStorage.setItem("fila_sincronizacao", JSON.stringify(fila));
 }
 
-// Sincroniza o que ficou preso no LocalStorage quando a internet voltar
 function sincronizarDadosPendentes() {
     let fila = JSON.parse(localStorage.getItem("fila_sincronizacao")) || [];
     if (fila.length === 0) return;
@@ -200,8 +211,6 @@ function sincronizarDadosPendentes() {
     const url = obterUrlServidor();
     if (!url || url.includes("SUA_URL_DO_PIPEDREAM_AQUI")) return;
 
-    console.log(`Sincronizando backlog offline (${fila.length} pendentes)...`);
-    
     const item = fila[0];
     const payload = { ...item.dados, tipoTabela: item.tipoTabela };
 
@@ -212,15 +221,13 @@ function sincronizarDadosPendentes() {
     })
     .then(res => {
         if (!res.ok) throw new Error("Ainda indisponível.");
-        // Remove o item com sucesso apenas APÓS a confirmação do envio para não duplicar
         fila.shift();
         localStorage.setItem("fila_sincronizacao", JSON.stringify(fila));
         console.log("Item sincronizado e removido da fila.");
     })
-    .catch(err => console.error("Servidor ainda offline ou erro no envio. Mantendo na fila.", err));
+    .catch(err => console.error("Servidor ainda offline. Mantendo na fila.", err));
 }
 
-// Verifica e limpa o banco local offline a cada 30 segundos de forma silenciosa
 setInterval(sincronizarDadosPendentes, 30000);
 
 // =================================================================
